@@ -1625,6 +1625,17 @@ verify() {
   projected="$(projected_unit_count)"
   shortfall="$(unprojected_pairs)"
   if [ -n "$shortfall" ] && [ "$ALLOW_UNPROJECTED" != 1 ]; then
+    # LEAD WITH THE CAUSE when there is one. A unit whose SKILL.md the CLI
+    # cannot parse is dropped from every sync — so it can never be projected,
+    # and this gate would otherwise blame the missing LINKS forever (measured:
+    # an invalid frontmatter deadlocked every descendant worktree at this exit
+    # while the parse failure sat one unread `!` line up in the log).
+    if [ -n "${LOG:-}" ] && command grep -q 'could not read installed skill' "$LOG" 2>/dev/null; then
+      printf 'error: a unit in this home CANNOT BE READ, so no sync can ever project it:\n' >&2
+      command grep 'could not read installed skill' "$LOG" | command sed 's/^/    /' | command head -4 >&2
+      printf '  Fix that unit (its own repo, then sync), or remove it. The missing links\n' >&2
+      printf '  below are the SYMPTOM of the line(s) above.\n' >&2
+    fi
     printf 'error: this home holds %s skill(s) and an agent launched here can reach %s.\n' \
       "$skills" "$projected" >&2
     printf '  A skill is served through <root>/.<agent>/skills/<unit>, not out of the\n' >&2
