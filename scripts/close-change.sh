@@ -32,7 +32,9 @@
 # --force` by hand, both of which skip the gate AND every other check this
 # script makes. An override that is named, logged and loud is safer than one
 # the operator improvises. --force therefore still RUNS the gate and still
-# PRINTS the blockers; it only declines to stop.
+# PRINTS the blockers; it only declines to stop. It never overrides a plugin
+# lifecycle callback: discarding home edits cannot make a leaked external
+# binding safe.
 #
 # How it degrades
 # ---------------
@@ -501,9 +503,117 @@ fi
 
 [ "$gate_ran" = 1 ] || die "internal: gate did not run"
 
+# --------------------------------------------------------- lifecycle callbacks
+
+# Plugins may own external state whose lifetime is the worktree's lifetime. A
+# home diff cannot see that state, so the close-out gate above cannot release or
+# validate it. Project-home plugins may therefore provide one executable at:
+#
+#   <project-home>/plugins/<plugin>/lifecycle/worktree-pre-remove
+#
+# The project home is the authority deliberately: it survives removal, covers
+# --no-home worktrees, and has already received any clean worktree-home changes
+# through the gate. Callbacks are stable-name ordered, bounded to 30 seconds,
+# and get only paths plus the operation. Each plugin owns how it reads its own
+# config beneath --project-home.
+#
+# `check` is read-only and runs for --dry-run. `release` runs after every local
+# refusal (including "standing in the target") has passed and immediately
+# before git removes the worktree. A non-zero result always refuses, including
+# with --force: that flag may discard home bytes, but it may not silently leak
+# an external binding.
+run_lifecycle_callback() {
+  local callback="$1" operation="$2"
+  "$PY" - "$callback" "$operation" "$WT" "$ROOT" "$INTO" "$STORE" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+callback, operation, worktree, project_root, project_home, worktree_home = sys.argv[1:]
+argv = [
+    callback,
+    operation,
+    "--worktree", worktree,
+    "--project-root", project_root,
+    "--project-home", project_home,
+    "--worktree-home", worktree_home,
+]
+proc = subprocess.Popen(
+    argv,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = proc.communicate(timeout=30)
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    stdout, stderr = proc.communicate()
+    stderr += "\nlifecycle callback exceeded 30 seconds and was terminated\n"
+    code = 124
+else:
+    code = proc.returncode
+
+# Callback output is diagnostic, never the closing contract. Bound both streams
+# so a broken plugin cannot turn teardown into an unbounded transcript.
+limit = 16 * 1024
+if stdout:
+    sys.stderr.write(stdout[:limit])
+    if len(stdout) > limit:
+        sys.stderr.write("\n[callback stdout truncated]\n")
+if stderr:
+    sys.stderr.write(stderr[:limit])
+    if len(stderr) > limit:
+        sys.stderr.write("\n[stderr truncated]\n")
+raise SystemExit(code)
+PY
+}
+
+lifecycle_refuse() {
+  local callback="$1" operation="$2" rc="$3"
+  local rerun
+  printf -v rerun '%q %q --worktree %q --project-root %q --project-home %q --worktree-home %q' \
+    "$callback" "$operation" "$WT" "$ROOT" "$INTO" "$STORE"
+  contract_fail "$rerun" "plugin lifecycle callback failed before worktree removal"
+  printf '\nrefusing to remove %s\n' "$WT" >&2
+  printf '  callback: %s\n  operation: %s\n  exit: %s\n' \
+    "$callback" "$operation" "$rc" >&2
+  if [ "$FORCE" = 1 ]; then
+    printf '  --force cannot override external lifecycle cleanup.\n' >&2
+  fi
+  exit "$REFUSED_EXIT"
+}
+
+run_lifecycle_callbacks() {
+  local operation="$1" callback rc
+  local callbacks=()
+  while IFS= read -r callback; do
+    [ -n "$callback" ] && callbacks+=("$callback")
+  done < <(find "$INTO/plugins" -mindepth 3 -maxdepth 3 \
+      -path '*/lifecycle/worktree-pre-remove' -type f -perm -111 -print \
+      2>/dev/null | LC_ALL=C sort)
+
+  [ "${#callbacks[@]}" -gt 0 ] || {
+    info "lifecycle: no project plugin pre-remove callbacks"
+    return 0
+  }
+  for callback in "${callbacks[@]}"; do
+    info "lifecycle: $operation $(basename "$(dirname "$(dirname "$callback")")")"
+    rc=0
+    run_lifecycle_callback "$callback" "$operation" || rc=$?
+    [ "$rc" = 0 ] || lifecycle_refuse "$callback" "$operation" "$rc"
+  done
+}
+
 # ------------------------------------------------------------------- removal
 
 if [ "$DRY_RUN" = 1 ]; then
+  run_lifecycle_callbacks check
   step "Dry run — nothing removed"
   info "would run: git -C \"$ROOT\" worktree remove \"$WT\""
   if [ "$gate_clean" = 1 ]; then
@@ -526,6 +636,11 @@ case "$INVOKED_FROM/" in
   "$WT"/*) die_fix 1 "bash -c \"cd '$ROOT' && '$SCRIPT_DIR/wt' close '$TARGET'\"" \
     "refusing to remove $WT while you are standing in it — cd elsewhere and re-run, or use --dry-run to just ask" ;;
 esac
+
+# This is deliberately the final operation before `git worktree remove`.
+# Releasing earlier could leave a locally closed binding attached to a
+# worktree that a later local refusal preserved.
+run_lifecycle_callbacks release
 
 step "Removing the worktree"
 # --force here is about git's own refusal over the ignored home and any build

@@ -304,6 +304,13 @@ are in `references/epic-ticket.md`.
    `wt close` is the same wrapper in both repo shapes (it forwards to
    `close-change.sh`, which refuses on a non-zero verdict with exit 4). Details
    and the `--force` semantics are in `references/complete.md` step 6.
+
+   After the home gate is clean, project-home plugins may run a bounded
+   `lifecycle/worktree-pre-remove` callback. A dry run invokes its read-only
+   `check`; a real close invokes `release` immediately before Git removal. A
+   callback failure preserves the worktree and is never bypassed by `--force`,
+   because discarding home edits cannot make a leaked external binding safe.
+   The stable callback contract is documented in `references/skill-homes.md`.
 5. **Close the GitHub issue with `gh`.** A `Closes #<n>` merge usually closes it
    automatically — confirm that, don't assume it, and close it explicitly if not:
    ```bash
