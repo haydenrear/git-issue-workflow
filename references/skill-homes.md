@@ -661,6 +661,42 @@ and **refuses to remove the worktree** (exit 4) while that verdict is non-zero,
 printing every blocking unit and the exact command that clears it. Run the
 remedy, re-run the script, and the removal proceeds.
 
+### Project plugin lifecycle callback
+
+A clean home does not prove external state has been released. A plugin that
+owns worktree-lifetime state may install one executable in the project home:
+
+```text
+<project-home>/plugins/<plugin>/lifecycle/worktree-pre-remove
+```
+
+`close-change.sh` discovers those executables from the **project home**, in
+stable bytewise plugin-name order. That location is intentional: it survives
+the worktree removal, covers a `--no-home` worktree, and is the destination the
+home gate has already reconciled. It invokes the executable as:
+
+```bash
+worktree-pre-remove check \
+  --worktree <absolute-worktree> \
+  --project-root <absolute-main-checkout> \
+  --project-home <absolute-project-home> \
+  --worktree-home <absolute-worktree-home>
+
+worktree-pre-remove release <same flags>
+```
+
+`check` is read-only and runs on `--dry-run`. `release` runs only after the
+home gate and every local removal precondition have passed, immediately before
+`git worktree remove`. The callback locates its own config beneath
+`--project-home`; this generic lifecycle does not interpret plugin data.
+
+Each callback is bounded to 30 seconds and its diagnostic streams to 16 KiB.
+A non-zero exit or timeout refuses with exit 4 and preserves the worktree.
+`--force` does not bypass this refusal: that flag names a deliberate discard of
+home bytes, while an unreleased external binding is still live state. There is
+an unavoidable narrow `release` → `git worktree remove` failure window; putting
+release after every other local check is the smallest honest local transaction.
+
 Why a script rather than a rule: `git worktree remove` succeeds with a home
 inside it because the home is ignored, not untracked — which is also why the
 ignore rules matter. It deletes the home **without asking**, and it succeeds
@@ -680,7 +716,8 @@ stop, and it says plainly that the work is being discarded. It exists because a
 gate with no escape hatch does not stop the operator who genuinely wants to
 throw a spike away — it routes them to `rm -rf` or `git worktree remove --force`
 by hand, which skips this check *and* every other one. A named, loud override is
-safer than an improvised one.
+safer than an improvised one. It does not override a project plugin lifecycle
+callback failure.
 
 ### How it degrades
 
@@ -693,6 +730,7 @@ nothing to lose.
 | **No `skill-manager` with `close-out`** on `SKILL_MANAGER_CLI`, the home's `bin/cli`, the checkout, the enclosing integration repo, or PATH | **Refuses** | Absence of the tool is absence of *proof*, which is not the same thing. A gate that opens when it cannot check is not a gate |
 | **Project home missing** (`--into` does not exist) | **Refuses** | The work has nowhere to go and there is nothing to compare against |
 | Gate reports blockers | **Refuses**, printing each remedy | The case the gate exists for |
+| Project plugin lifecycle callback fails or times out | **Refuses even with `--force`** | External state was not proven released; deleting local bytes cannot repair that |
 
 The capability probe reads the CLI's help **text**, not its exit status, for the
 same measured reason `bootstrap-home.sh` does: the released 0.19.2 answers

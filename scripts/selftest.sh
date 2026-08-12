@@ -302,6 +302,15 @@ check "$(yesno command grep -q 'The home is a clone' "$BOOT_LOG")" \
   "a_run_that_cloned_says_which_directories_were_skipped" \
   "a real clone did not record the skipped-directory caveat"
 
+# Current Skill Manager rebuilds/removes stale managed CLI projections while it
+# bootstraps, so whether the source's jinja2 link remains dangling is no longer
+# stable evidence about verify(). Plant an unmanaged dangling link *after* the
+# clone and before the force rerun instead. The assertion is about reporting a
+# link that exists in the finished home, not about one old package manager's
+# projection-retention policy.
+ln -s ../../venvs/fixture-missing/bin/tool \
+  "$WT_HOME/bin/cli/fixture-dangling"
+
 FORCE_RC=0
 bare bash "$SCRIPT_DIR/bootstrap-home.sh" --root "$WT" --force \
   > "$SCRATCH/bootstrap-force.log" 2>&1 || FORCE_RC=$?
@@ -337,7 +346,7 @@ check "$(yesno contains "1 skill(s) servable" "$VERIFIED_LINE")" \
   "the_verified_line_states_how_many_skills_the_home_can_serve" \
   "expected the servable-skill count in '${VERIFIED_LINE:-<no verified: line>}'"
 
-# The dangling shim the fixture seeded. `skill-manager home verify` refuses this
+# The dangling shim the fixture planted. `skill-manager home verify` refuses this
 # home for it; bootstrap must at minimum SAY so, or the two disagree and the
 # operator believes the one that ran.
 #
@@ -346,7 +355,7 @@ check "$(yesno contains "1 skill(s) servable" "$VERIFIED_LINE")" \
 # or not bootstrap says anything — measured while writing this, by reverting the
 # report and watching the check stay green. --force runs no clone, so the only
 # thing that can name the link there is bootstrap's own verify().
-check "$(yesno command grep -q 'bin/cli/jinja2 -> ../../venvs/jinja2-cli/bin/jinja2' "$FORCE_LOG")" \
+check "$(yesno command grep -q 'bin/cli/fixture-dangling -> ../../venvs/fixture-missing/bin/tool' "$FORCE_LOG")" \
   "a_link_that_does_not_resolve_in_the_home_is_named_even_with_no_clone_report" \
   "verify() did not name the dangling shim on a run that recorded no clone report (rc=$FORCE_RC); see $FORCE_LOG"
 
@@ -3009,6 +3018,125 @@ check "$(yesno info_claims_no_base_it_did_not_measure)" \
   "wt_info_reports_no_BASE_for_a_worktree_whose_branch_point_it_never_measured" \
   "stdout was:
 $(command sed 's/^/        /' "$SCRATCH/sb-info.out")"
+
+# --------------------- project plugin callbacks bracket the destructive remove
+
+step "Project plugins run a fail-closed lifecycle callback before removal"
+
+# Project lifecycle config is ordinary home state, not a managed unit edit. A
+# real child clone must carry it byte-for-byte so its SessionStart hook sees the
+# same immutable onboarding receipt the parent selected.
+mkdir -p "$PROJ_HOME/cdc-index"
+cat > "$PROJ_HOME/cdc-index/worktree.json" <<'EOF'
+{"schemaVersion":1,"marker":"fixture-parent-receipt"}
+EOF
+
+LCB1="$SCRATCH/proj-LCB1"
+LCB2="$SCRATCH/proj-LCB2"
+LCB3="$SCRATCH/proj-LCB3"
+for ticket in LCB1 LCB2 LCB3; do
+  ( cd "$PROJ" && bare bash "$SCRIPT_DIR/wt" new "$ticket" main ) \
+    > "$SCRATCH/$ticket-new.out" 2> "$SCRATCH/$ticket-new.err" || true
+done
+
+callback_config_was_cloned_byte_for_byte() {
+  [ -d "$LCB1" ] || return 1
+  same_file "$PROJ_HOME/cdc-index/worktree.json" \
+            "$LCB1/.skill-manager/cdc-index/worktree.json"
+}
+check "$(yesno callback_config_was_cloned_byte_for_byte)" \
+  "project_lifecycle_config_survives_real_worktree_home_bootstrap_byte_for_byte" \
+  "the child home did not retain the project's cdc-index/worktree.json"
+
+# Install one fixture callback only AFTER the homes exist. close-change.sh must
+# discover it from the project home, not from the child: that is what covers a
+# --no-home worktree and what lets the callback survive the removal it gates.
+CALLBACK_DIR="$PROJ_HOME/plugins/fixture-lifecycle/lifecycle"
+CALLBACK="$CALLBACK_DIR/worktree-pre-remove"
+CALLBACK_LOG="$PROJ_HOME/lifecycle-fixture.log"
+mkdir -p "$CALLBACK_DIR"
+cat > "$CALLBACK" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+operation="${1:?operation}"; shift
+worktree=""; project_root=""; project_home=""; worktree_home=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --worktree) worktree="$2"; shift 2 ;;
+    --project-root) project_root="$2"; shift 2 ;;
+    --project-home) project_home="$2"; shift 2 ;;
+    --worktree-home) worktree_home="$2"; shift 2 ;;
+    *) exit 64 ;;
+  esac
+done
+[ -d "$worktree" ]
+[ -d "$project_root" ]
+[ -d "$project_home" ]
+# The callback is before removal, not a notification after the fact.
+git -C "$project_root" worktree list --porcelain | grep -Fqx "worktree $worktree"
+printf '%s|%s|%s|%s\n' "$operation" "$worktree" "$project_home" "$worktree_home" \
+  >> "$project_home/lifecycle-fixture.log"
+printf 'fixture callback diagnostic\n'
+[ ! -f "$project_home/lifecycle-fixture-fail-$operation" ]
+EOF
+chmod +x "$CALLBACK"
+
+LCB_DRY_RC=0
+( cd "$PROJ" && bare bash "$SCRIPT_DIR/close-change.sh" "$LCB1" --dry-run ) \
+  > "$SCRATCH/lcb-dry.out" 2> "$SCRATCH/lcb-dry.err" || LCB_DRY_RC=$?
+dry_run_calls_check_only_and_preserves_the_worktree() {
+  [ "$LCB_DRY_RC" = 0 ] || return 1
+  [ -d "$LCB1" ] || return 1
+  [ "$(command grep -c '^check|' "$CALLBACK_LOG" || true)" = 1 ] || return 1
+  [ "$(command grep -c '^release|' "$CALLBACK_LOG" || true)" = 0 ] || return 1
+  # Callback diagnostics are prose on stderr, never mixed with contract keys.
+  ! command grep -q 'fixture callback diagnostic' "$SCRATCH/lcb-dry.out"
+}
+check "$(yesno dry_run_calls_check_only_and_preserves_the_worktree)" \
+  "dry_run_calls_check_only_and_preserves_the_worktree" \
+  "rc=$LCB_DRY_RC; log=$(command tr '\n' ';' < "$CALLBACK_LOG" 2>/dev/null); stdout=$(command tr '\n' ';' < "$SCRATCH/lcb-dry.out")"
+
+LCB_RELEASE_RC=0
+( cd "$PROJ" && bare bash "$SCRIPT_DIR/close-change.sh" "$LCB1" ) \
+  > "$SCRATCH/lcb-release.out" 2> "$SCRATCH/lcb-release.err" || LCB_RELEASE_RC=$?
+successful_release_runs_while_registered_then_removes() {
+  [ "$LCB_RELEASE_RC" = 0 ] || return 1
+  [ ! -d "$LCB1" ] || return 1
+  [ "$(command grep -c '^release|' "$CALLBACK_LOG" || true)" = 1 ] || return 1
+  ! command grep -q 'fixture callback diagnostic' "$SCRATCH/lcb-release.out"
+}
+check "$(yesno successful_release_runs_while_registered_then_removes)" \
+  "successful_callback_runs_before_git_removal_and_diagnostics_stay_off_stdout" \
+  "rc=$LCB_RELEASE_RC; worktree-present=$(yesno test -d "$LCB1"); log=$(command tr '\n' ';' < "$CALLBACK_LOG")"
+
+touch "$PROJ_HOME/lifecycle-fixture-fail-release"
+LCB_FAIL_RC=0
+( cd "$PROJ" && bare bash "$SCRIPT_DIR/close-change.sh" "$LCB2" --force ) \
+  > "$SCRATCH/lcb-fail.out" 2> "$SCRATCH/lcb-fail.err" || LCB_FAIL_RC=$?
+failed_release_is_not_overridden_by_force() {
+  [ "$LCB_FAIL_RC" = 4 ] || return 1
+  [ -d "$LCB2" ] || return 1
+  command grep -q '^FAILED ' "$SCRATCH/lcb-fail.out" || return 1
+  command grep -q -- '--force cannot override external lifecycle cleanup' \
+    "$SCRATCH/lcb-fail.err"
+}
+check "$(yesno failed_release_is_not_overridden_by_force)" \
+  "failed_callback_preserves_the_worktree_and_refuses_even_with_force" \
+  "rc=$LCB_FAIL_RC; present=$(yesno test -d "$LCB2"); stdout=$(command tr '\n' ';' < "$SCRATCH/lcb-fail.out")"
+
+# Clear the external failure and close LCB2 so the fixture itself leaves no
+# registered worktree. Then remove the callback and prove legacy projects are
+# unchanged: absence of a callback is a valid no-op, not a new prerequisite.
+rm -f "$PROJ_HOME/lifecycle-fixture-fail-release"
+( cd "$PROJ" && bare bash "$SCRIPT_DIR/close-change.sh" "$LCB2" ) \
+  > "$SCRATCH/lcb-retry.out" 2> "$SCRATCH/lcb-retry.err" || true
+mv "$CALLBACK" "$CALLBACK.disabled"
+LCB_ABSENT_RC=0
+( cd "$PROJ" && bare bash "$SCRIPT_DIR/close-change.sh" "$LCB3" ) \
+  > "$SCRATCH/lcb-absent.out" 2> "$SCRATCH/lcb-absent.err" || LCB_ABSENT_RC=$?
+check "$(yesno test "$LCB_ABSENT_RC" = 0 -a ! -d "$LCB3")" \
+  "a_project_with_no_callback_keeps_the_existing_close_behavior" \
+  "rc=$LCB_ABSENT_RC; worktree-present=$(yesno test -d "$LCB3")"
 
 # ------------------------------------------------------------------- verdict
 
