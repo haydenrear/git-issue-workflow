@@ -104,6 +104,14 @@ and before close:
 All four are reportable outcomes. "No measurable movement" in particular is a
 result — omitting it reads as a signal nobody ran.
 
+Where a goal's harness is a **judged** instrument, a score is normally **not**
+the local signal. Judging costs several blind judges per round, a judged number
+can move on unchanged input by more than one ticket moves it, and a card scored
+on a mid-epic tree is not comparable to the baseline under the instrument's own
+comparability rules. `N/A: judging is too expensive and its noise exceeds one
+ticket's movement` is the expected answer, and it is a complete one. Read the
+baseline card before implementing; do not produce a new one.
+
 ### Precedence: what decides what
 
 This is the part that must not blur:
