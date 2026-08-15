@@ -1537,8 +1537,16 @@ done < <(
   # the two-word shape is how the first draft of this check matched 4 of the 7
   # strings that exist -- caught by the vacuity guard below, which is the only
   # reason this comment is accurate.
+  # `xargs -0 grep`, NOT `xargs -0 command grep`. xargs execs its argument
+  # DIRECTLY, with no shell in between, so there is no alias or function for
+  # `command` to bypass — but there IS a `/usr/bin/command` binary on macOS and
+  # none on Linux, so on a GNU host xargs failed with "command: No such file or
+  # directory" and the sweep came back EMPTY. That is the vacuity this file's
+  # own guards exist to catch, hiding inside the sweep that feeds them.
+  # (`| command sed` below is a real shell pipeline where `command` IS the
+  # builtin and is correct; the distinction is xargs, not sed.)
   cd "$SCRIPT_DIR/.." && git ls-files -z 2>/dev/null \
-    | xargs -0 command grep -ohE 'skill-manager [a-z][a-z-]*( [a-z][a-z-]+)? --[a-z][a-z-]+' 2>/dev/null \
+    | xargs -0 grep -ohE 'skill-manager [a-z][a-z-]*( [a-z][a-z-]+)? --[a-z][a-z-]+' 2>/dev/null \
     | command sed -E 's/^skill-manager //; s/ (--[a-z-]+)$/|\1/' \
     | sort -u
 )
@@ -2283,8 +2291,11 @@ step "Every scripts/ path this skill names is one it ships"
 # up would make the rule below assert the opposite of what it means. A bare
 # `scripts/<name>` — at a line start, after a space, a backtick or a quote — is
 # still a promise about THIS skill, and is still checked.
+# Same `xargs -0 command grep` portability defect as the sweep above: no
+# `/usr/bin/command` exists on Linux, so this returned EMPTY there and the
+# assertions below it passed vacuously. Only the membership floor caught it.
 NAMED="$(cd "$SCRIPT_DIR/.." && git ls-files -z 2>/dev/null \
-  | xargs -0 command grep -ohE '(^|[^/A-Za-z0-9_.-])scripts/[A-Za-z0-9_][A-Za-z0-9_.-]*' 2>/dev/null \
+  | xargs -0 grep -ohE '(^|[^/A-Za-z0-9_.-])scripts/[A-Za-z0-9_][A-Za-z0-9_.-]*' 2>/dev/null \
   | command sed 's#^.*[^A-Za-z0-9_.-]scripts/##; s#^scripts/##; s/[.,;:]*$//' | sort -u || true)"
 MISSING_FLOOR=""
 for want in bootstrap-home.sh new-change.sh close-change.sh wt agent-home.sh; do
