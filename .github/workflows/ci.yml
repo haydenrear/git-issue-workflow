@@ -1,0 +1,132 @@
+# CI for git-issue-workflow.
+#
+# This repository had NO workflows, and it ships `wt` — the worktree front door
+# EVERY ticket in EVERY repo of this fleet starts and ends with. The single most
+# load-bearing script in the workspace was verified by nobody.
+#
+# Three jobs, and what each is for:
+#
+#   tests     tests/test_wt_wrapper.py, the typed Python surface over `wt`.
+#             17 tests, seconds. Run on the interpreter floor pyproject.toml
+#             declares AND on the version the fleet's homes actually run,
+#             because `requires-python = ">=3.11"` was a claim nothing checked.
+#
+#   wt-smoke  .github/scripts/wt_smoke.sh — a real `wt new` / `wt info` /
+#             `wt close` round trip against a throwaway git repository, from a
+#             bare shell with no skill-manager installed. This is the half the
+#             Python wrapper cannot reach: the wrapper parses the contract, the
+#             smoke proves the contract describes something that happened.
+#
+#   units     SKILL.md frontmatter and the unit manifest still parse, plus
+#             shellcheck over every shipped script. The frontmatter half is not
+#             hypothetical: an unquoted `: ` in one description made a unit
+#             invalid YAML, a sync silently dropped it, and descendant worktrees
+#             deadlocked on exit 6 blaming links (git-issue-workflow#16,
+#             skill-dev-skill#4). Seconds, here, instead of an epic, there.
+#
+# WHAT IS DELIBERATELY NOT HERE: scripts/selftest.sh.
+#
+# It is the thorough suite and it belongs in CI eventually, but it cannot be
+# enabled honestly today, for two independent reasons:
+#
+#   * it requires a skill-manager CLI with `home clone`, which a hosted runner
+#     does not have and this repo has no supported way to install; and
+#   * run against this repo's `main` on a developer machine with skill-manager
+#     0.23.0 it is RED and slow — 149 passed / 58 failed in ~7.5 minutes, the
+#     failures clustered in the bootstrap console/banner contract (many
+#     downstream of a `bootstrap exited 6`) and in the project lifecycle-callback
+#     section.
+#
+# A job that cannot pass is worse than no job: it trains everyone to ignore a
+# red X. So the red is filed rather than papered over — see the ARTI-14 report
+# and the backlog on the epic — and CI here covers the parts that CAN be
+# measured honestly today.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: pytest (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Give git a committer identity
+        run: |
+          git config --global user.email "ci@git-issue-workflow.invalid"
+          git config --global user.name "git-issue-workflow CI"
+          git config --global init.defaultBranch main
+
+      # The interpreter is pinned rather than inherited: bare `python3` in this
+      # workspace resolves to 3.14 without pytest on the machines these scripts
+      # are developed on, and an unpinned CI job would carry that ambiguity into
+      # the one place that is supposed to remove it.
+      - name: Run the wrapper suite
+        run: uv run --python ${{ matrix.python-version }} --with pytest pytest tests -q
+
+  wt-smoke:
+    name: wt new / close round trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # No uv, no skill-manager, no home. That is the point: the smoke runs in
+      # the environment a human running `wt` by hand is in, which is the shape
+      # every home-resolution bug this skill has had lived in.
+      - name: Smoke the worktree front door
+        run: bash .github/scripts/wt_smoke.sh
+
+  units:
+    name: unit manifest and frontmatter
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Validate the unit manifest and SKILL.md frontmatter
+        run: uv run --python 3.13 --script .github/scripts/check_units.py --root .
+
+      - name: Install shellcheck
+        run: command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y shellcheck; }
+
+      # Warning level, not error level — `--severity=error` passes on anything
+      # that parses. The three exclusions are the known-noise set measured
+      # across these scripts (unused vars, cd-without-guard, unquoted command
+      # substitution) and they are named here rather than tolerated silently, so
+      # that lowering the bar would have to be a diff someone reviews.
+      - name: Lint the shipped shell scripts
+        run: |
+          shellcheck --severity=warning --exclude=SC2034,SC2164,SC2046 \
+            scripts/wt scripts/*.sh .github/scripts/*.sh
