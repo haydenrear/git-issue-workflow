@@ -41,12 +41,18 @@ its closing marker and a valid YAML block. Extract at least:
   budget you learn about after the fifth deferral has already failed to stop
   anything, and an entry whose fields you invented is read back by epic-side
   review and finalization as if you had used theirs (§4b); and
-- external review mode with `ticket_agent_stops_after: pr_open`. The `review:`
-  block may additionally carry `merged_by: "epic-owner"`, a `cadence:`, and an
-  `artifact_root:`. Those fields are additive: read them, and never treat one as
-  an unknown-field failure. `mode` stays `external` and the stop point stays
-  `pr_open` — `merged_by` names who merges the PR after you have stopped, not a
-  change to whether you stop.
+- external review mode with `ticket_agent_stops_after: pr_open`, plus
+  `merged_by: "epic-owner"` and, when present, a `cadence:`
+  (`wave`, `milestone`, or `finalization-only`) and an `artifact_root:`. Read
+  them and never treat one as an unknown-field failure. `mode` stays `external`
+  and the stop point stays `pr_open` — `merged_by` names who merges the PR after
+  you have stopped, not a change to whether you stop. It is a **role**, not a
+  person: the schema requires it and pins it to `epic-owner` even when the user
+  said they would merge the ticket PRs themselves, because that answer is
+  recorded in the canonical plan and changes what the epic agent does, not what
+  you do. A `merged_by` naming anything else — `human`, a username — is a
+  dispatch error to return to the epic owner, never a licence to merge your own
+  PR.
 
 Stop for correction if a required field is missing or if these invariants fail:
 
@@ -75,7 +81,11 @@ meanings are in `references/goal-signal.md`.
 
 A ticket carrying `role: evaluation` additionally requires that `owns_goals` is
 non-empty, that every goal it lists names this ticket as its deciding ticket, and
-that each such goal declares a `harness` and an `evidence_root`. Its execution
+that each such goal declares a `harness`, an `evidence_root`, and
+`contribution: "guard"`. Those three are *additions* to the ordinary goal entry,
+not replacements for part of it — `kind`, `statement`, `metric`, `decided_by`,
+`expected_effect` and `local_signal` are all still there, and a goal entry that
+dropped `contribution` to signal "this one measures" is a missing field. Its execution
 differs from §3 onward — read "The evaluation ticket" in
 `references/goal-signal.md` before provisioning it.
 
