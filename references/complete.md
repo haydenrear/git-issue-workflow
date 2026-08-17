@@ -188,6 +188,19 @@ them prints blockers:
 Use `--json` when you want to act on `.blockers[]` programmatically. The command
 writes nothing and is safe to re-run after each remedy.
 
+**Epic exception.** Everything above is the ordinary close, where this worktree is
+the only one closing and `home sync … --merge` into the project home is the right
+move. A ticket whose issue carries the `git-epic-workflow` assignment block runs
+this differently: the gate is **read-only** there — run it, report the verdict in
+the PR body, and stop. Do not `home sync` into the project home (one shared
+destination, concurrent tickets in the wave cannot see each other writing it) and
+do not remove the worktree. `unit publish <unit> --ticket <ticket>` is still yours
+to run; anything you cannot publish is named in the PR body under
+`## Review input` → *Machinery friction*. The epic agent reconciles every
+worktree's home into the project home in serial at wave close and removes every
+worktree in one sweep at the end of the epic. Full sequence:
+`references/epic-ticket.md`.
+
 Prefer the wrapper in **both** repo shapes — it does the gate and the removal in
 the right order and refuses (exit 4) on a non-zero verdict:
 
@@ -269,7 +282,7 @@ its *own* spec/test-graph loops downstream. Do this now via
 - [ ] PLAIN: PR opened with `Closes #<n>`, rebase-merged into `main` via `gh pr merge --rebase`, merge verified
 - [ ] PR body carries `## Goal contribution` (or `None declared`)
 - [ ] INTEGRATION: parent merged to main and `verify.sh` clean
-- [ ] `home close-out` run and clean (or every blocker cleared by `home sync --merge` / `unit publish`) **before** any removal
+- [ ] `home close-out` run and clean (or every blocker cleared by `home sync --merge` / `unit publish`) **before** any removal — epic ticket: gate run read-only, verdict in the PR body, no `home sync` into the project home, no removal (`references/epic-ticket.md`)
 - [ ] Any skill improvement made inside the worktree's home published to that unit's own repo
 - [ ] Worktree removed
 - [ ] Project root (`<repo-root>`) synced to the new `main`

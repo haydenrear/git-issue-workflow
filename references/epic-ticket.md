@@ -32,8 +32,15 @@ its closing marker and a valid YAML block. Extract at least:
   `target`, `decided_by.ticket`, `decided_by.harness`, `contribution`,
   `expected_effect`, `local_signal`, and (evaluation tickets) `harness` and
   `evidence_root`;
-- the exact validation matrix and evidence root; and
-- external review mode with `ticket_agent_stops_after: pr_open`.
+- the exact validation matrix and evidence root;
+- the `deferment:` block — `mode`, `blocking`, `budget`, and the `backlog` path a
+  deferred finding is filed into; and
+- external review mode with `ticket_agent_stops_after: pr_open`. The `review:`
+  block may additionally carry `merged_by: "epic-owner"`, a `cadence:`, and an
+  `artifact_root:`. Those fields are additive: read them, and never treat one as
+  an unknown-field failure. `mode` stays `external` and the stop point stays
+  `pr_open` — `merged_by` names who merges the PR after you have stopped, not a
+  change to whether you stop.
 
 Stop for correction if a required field is missing or if these invariants fail:
 
@@ -343,8 +350,32 @@ The PR body must contain:
   `unmeasured` verdict per owned goal, split one row per clause where a target
   has several. Both formats are in
   `references/goal-signal.md`;
-- the append-only close-history path; and
-- the resulting ticket commit SHA.
+- the append-only close-history path;
+- the resulting ticket commit SHA;
+- the `home close-out` verdict for this worktree, naming every blocking unit and
+  every unit you published with `unit publish`. The epic agent reconciles this
+  home into the project home at wave close and later deletes the worktree without
+  being able to see inside it, so this line and the *Machinery friction* list
+  below are the only places that fact survives;
+- a `## Deferred findings` section with one line per backlog ID this ticket filed
+  — the ID, its severity, and a one-line summary — or `None`; and
+- a `## Review input` section, written for a human who has ten minutes and did not
+  read the ticket. Four short lists, evidence-cited, no padding — the epic owner
+  composes the wave review from these rather than re-deriving them from the diff:
+  - **Hot spots** — what you changed that carries the most risk or the most
+    meaning, with paths. Say when you wrote a file another ticket in your wave
+    also touches;
+  - **Decisions and overrides** — choices the assignment did not specify that
+    another ticket would be needed to reverse, plus every guardrail you weakened
+    (`--allow-open`, a skipped test, a matrix entry that became `N/A`, an inline
+    out-of-scope fix). Report them even where they were obviously right;
+  - **Where I'd look for bugs** — your own change, ranked, with the cheapest
+    experiment that would settle each. Reproducible defects are backlog entries
+    instead; this list is allowed to be suspicion, labelled as such;
+  - **Machinery friction** — what about the skills, scripts, validators, or
+    instruments cost you time, and what you changed in your own Skill Manager
+    home to get around it. That home is gitignored and dies with this worktree,
+    so a fix you do not name here reaches nobody.
 
 Stop for external review immediately after confirming that the PR base is the
 declared epic branch and the body contains the evidence. Do not:
@@ -363,10 +394,12 @@ close history.
 ### Your worktree survives, so its home has to be dealt with here
 
 An ordinary ticket runs `home close-out` and then removes its worktree
-(`references/complete.md` step 6). You do not: external review owns the merge, so
-you leave the worktree standing. That does **not** postpone the home question — it
-makes it worse, because the person who eventually removes this worktree is the
-epic finalizer, and they have no idea what is inside your home.
+(`references/complete.md` step 6). You do not: the epic agent merges this PR into
+`epic/<slug>` at wave close and removes every worktree in one sweep at the end of
+the epic, so you leave yours standing. That does **not** postpone the home
+question. The epic agent reconciles this home into the project home at wave close,
+in serial, and it acts on the close-out verdict and the *Machinery friction* list
+in your PR body — which is precisely why you write them.
 
 Your home is `<worktree>/.skill-manager`, a real copy of the project home, and it
 is gitignored — so nothing you changed inside it is in the PR you just opened, in
@@ -380,19 +413,27 @@ skill-manager home close-out --home ../wt-<issue-number>-<slug>/.skill-manager \
                              --into <repo-root>/.skill-manager --json
 ```
 
-- **Clean:** say so in the PR body, one line. The finalizer needs to know the gate
+Here the gate is **read-only**: it writes nothing, you run it for the verdict, and
+the verdict is what the epic agent reads.
+
+- **Clean:** say so in the PR body, one line. The epic agent needs to know the gate
   was already green, not to guess.
-- **Blockers:** clear them now, not at epic close. For an improvement to a skill,
-  the command that matters is `skill-manager unit publish <unit> --ticket <ticket>`
-  — it puts the edit in the unit's own repository, which is the only route that
-  reaches sibling projects and the only one that outlives this machine.
-  `skill-manager home sync --from … --to … --merge` only lifts it into the project
-  home: enough to survive the teardown, not enough to be seen anywhere else.
-  Then re-run the gate and record the clean verdict in the PR body.
+- **Blockers:** for an improvement to a skill, the command that matters is
+  `skill-manager unit publish <unit> --ticket <ticket>` — it puts the edit in the
+  unit's own repository, the only route that reaches sibling projects and the only
+  one that outlives this machine, and it contends with nothing because it writes
+  that unit's own repo. That one is yours to run. Then re-run the gate and record
+  the verdict in the PR body.
+- Do **not** run `skill-manager home sync` into the project home. That home is one
+  shared destination, concurrent tickets in your wave cannot see each other writing
+  it, and races there are the bug this rule exists for; the epic agent reconciles
+  every worktree's home into it in serial at wave close. Anything you cannot
+  publish, name in the PR body under `## Review input` → *Machinery friction* and
+  leave for that reconciliation.
 
 Do **not** remove the worktree, and do not use `--force` to make a blocker go
-away. A sealed PR whose home still holds the only copy of an unpublished skill
-edit is an unrecorded dependency on a directory somebody else is going to delete.
+away. A blocker your PR body does not name is an unrecorded dependency on a
+directory the end-of-epic sweep is going to delete.
 
 ## If your assignment says `role: evaluation`
 
@@ -446,6 +487,12 @@ things change, and the full contract is "The evaluation ticket" in
 - [ ] Promotion predecessor merged and latest epic tip reconciled
 - [ ] Only the assigned ticket closed/promoted; no bypass or whole close used
 - [ ] PR opened with `Refs #<issue>` and base `epic/*`
-- [ ] `home close-out` verdict clean and stated in the PR body; any skill edit
-      published with `unit publish`; worktree left standing
+- [ ] PR body carries `## Deferred findings` (each backlog ID with severity and a
+      one-line summary, or `None`)
+- [ ] PR body carries `## Review input` — hot spots, decisions and overrides,
+      where I'd look for bugs, machinery friction — each evidence-cited
+- [ ] `home close-out` run as a read-only gate and its verdict stated in the PR
+      body; any skill edit published with `unit publish`; no `home sync` into the
+      project home; worktree left standing for the epic agent to reconcile and
+      later sweep
 - [ ] Work stopped for external review; issue and default branch untouched
