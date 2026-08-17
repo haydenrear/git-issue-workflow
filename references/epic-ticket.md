@@ -409,12 +409,22 @@ Before you stop:
 
 ```bash
 # 1. Did I change a skill while working this ticket?
-skill-manager home close-out --home ../wt-<issue-number>-<slug>/.skill-manager \
-                             --into <repo-root>/.skill-manager --json
+<main-working-tree>/.skill-manager/bin/cli/skill-manager home close-out \
+    --home ../wt-<issue-number>-<slug>/.skill-manager \
+    --into <main-working-tree>/.skill-manager --json
 ```
 
 Here the gate is **read-only**: it writes nothing, you run it for the verdict, and
 the verdict is what the epic agent reads.
+
+`--into` is the **main working tree's** home — the one yours was cloned from, not
+`$PWD`'s nearest git toplevel, which from inside a worktree names that worktree's
+own home and would compare yours against itself. `references/skill-homes.md`
+records that as a fixed defect; a read-only gate pointed at the wrong home
+returns a confident wrong verdict, which is worse here than an error, because the
+epic agent reconciles on it. Name a **resolved CLI path** rather than a bare
+`skill-manager`, for the same reason that page gives: an older release first on
+`PATH` exits 2.
 
 - **Clean:** say so in the PR body, one line. The epic agent needs to know the gate
   was already green, not to guess.
