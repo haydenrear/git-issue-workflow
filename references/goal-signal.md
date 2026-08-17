@@ -151,6 +151,13 @@ measurement that showed it, and what you did instead. Do not expand this ticket
 into the fix. Plan feedback is not ticket work, and a ticket that quietly grows
 to chase a metric is the exact thing the deferment policy exists to stop.
 
+"File a deferred finding" is a specific act with an owned format — an append-only
+entry in the assignment's `deferment.backlog`, carrying a sequential ID and a
+`blocking` / `major` / `minor` severity the epic owner's review sorts on. The
+schema and the classification test are
+`<git-epic-workflow-skill>/references/deferment.md`; `references/epic-ticket.md`
+§4b is the short version for this seat.
+
 ## Reporting: the `## Goal contribution` PR section
 
 Every ticket that declares a goal carries this section in its PR body, one row

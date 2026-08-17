@@ -34,7 +34,13 @@ its closing marker and a valid YAML block. Extract at least:
   `evidence_root`;
 - the exact validation matrix and evidence root;
 - the `deferment:` block — `mode`, `blocking`, `budget`, and the `backlog` path a
-  deferred finding is filed into; and
+  deferred finding is filed into. Those four values are *names* here and nothing
+  more; what each one obliges you to do, and the shape of the entry you write
+  into `backlog`, are in `<git-epic-workflow-skill>/references/deferment.md`.
+  Read it now, at parse time, rather than at the moment you have a finding — a
+  budget you learn about after the fifth deferral has already failed to stop
+  anything, and an entry whose fields you invented is read back by epic-side
+  review and finalization as if you had used theirs (§4b); and
 - external review mode with `ticket_agent_stops_after: pr_open`. The `review:`
   block may additionally carry `merged_by: "epic-owner"`, a `cadence:`, and an
   `artifact_root:`. Those fields are additive: read them, and never treat one as
@@ -253,6 +259,50 @@ showed it, and what you did instead. That is plan feedback for the epic owner,
 not ticket work, and a ticket that quietly grows to chase a metric is exactly
 what the deferment policy exists to stop.
 
+### 4b. File a deferred finding in the schema the epic owner reads
+
+Every defect this ticket surfaces and does not fix goes in the assignment's
+`deferment.backlog` file, and **that file has an owned schema you do not get to
+approximate**: `<git-epic-workflow-skill>/references/deferment.md`. Open it
+before writing the first entry. Three of its rules decide whether your entry
+survives contact with the epic side:
+
+- **Classification comes first.** A finding is in scope — ordinary ticket work,
+  no backlog entry — only when every surface the fix touches is inside this
+  ticket's `conflict_keys`, the fix changes no TLA+ action, invariant, or
+  adapter mapping outside the declared semantic delta, and this ticket's desired
+  model already implies the corrected behavior. Everything else is out of scope
+  and is a deferment candidate, including latent bugs your change merely
+  exposed.
+- **`severity` is a fixed vocabulary — `blocking`, `major`, `minor` — and it is
+  load-bearing downstream.** The epic owner must not merge a ticket PR whose
+  ticket filed a still-`pending` `severity: blocking` finding, the wave review's
+  "where I'd look for bugs" section is required to list pending entries at
+  `severity: major`, and finalization cannot close the epic while any entry is
+  still `pending`. A severity you coined yourself matches none of those reads, so
+  the entry lands in a table nobody triages and stops nothing it should have
+  stopped. `blocking` also has an operational meaning here, not just a rank: it
+  means this ticket's REQUIRED
+  validation matrix cannot pass without touching an out-of-scope surface, and it
+  triggers `deferment.blocking` — under `escalate` you stop at the current
+  commit, push without closing the spec ticket or opening a promotion PR, and
+  return the ticket to the epic owner.
+- **An entry with no reproduction is a hunch, not a finding.** The entry carries
+  a sequential never-reused `id`, the ticket that found it, the commit, the
+  schedule revision, the affected surfaces, a one-line summary, the exact
+  reproduction command with observed versus expected, evidence paths under this
+  ticket's evidence root, why it is out of scope, a suggested fix or `unknown`,
+  and its blast radius. `disposition` starts `pending` and is the **epic
+  owner's** field — never set it to anything else, except `fixed-inline` under
+  `mode: inline`.
+
+`mode` decides what you do after appending the entry: `batch` continue,
+`ask` ask the owner now-or-batch, `inline` fix it only inside your own conflict
+keys and record what you fixed. `budget` is a stop, not a quota — exceed it and
+you stop implementing, file what you have, and report that the ticket's premise
+looks wrong. The backlog is planning data: commit it with your ordinary commits,
+never into ticket-local `desired/` or `current/`, and never as close evidence.
+
 At this stage parallel implementation may finish, but the ticket is not yet
 allowed into the promotion lane.
 
@@ -358,7 +408,11 @@ The PR body must contain:
   being able to see inside it, so this line and the *Machinery friction* list
   below are the only places that fact survives;
 - a `## Deferred findings` section with one line per backlog ID this ticket filed
-  — the ID, its severity, and a one-line summary — or `None`; and
+  — the ID, its `blocking` / `major` / `minor` severity, and a one-line summary —
+  or `None`. This section is a summary of the backlog entries, not a substitute
+  for them: the entries themselves live in `deferment.backlog` in the schema
+  §4b names, and a severity here that is not one of those three tokens is a
+  finding the epic owner's review will not sort; and
 - a `## Review input` section, written for a human who has ten minutes and did not
   read the ticket. Four short lists, evidence-cited, no padding — the epic owner
   composes the wave review from these rather than re-deriving them from the diff:
@@ -408,10 +462,17 @@ the sealed close-history entry, or in any of the evidence you attached.
 Before you stop:
 
 ```bash
+# 0. Compute <main-working-tree>. Do not type it from memory and do not use
+#    `git rev-parse --show-toplevel`: from inside this worktree that answers
+#    THIS worktree, and the gate would then compare your home against itself.
+#    `git worktree list` names the main working tree first, always — the same
+#    resolution `project_home` in scripts/lib.sh performs.
+main_working_tree="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+
 # 1. Did I change a skill while working this ticket?
-<main-working-tree>/.skill-manager/bin/cli/skill-manager home close-out \
+"$main_working_tree"/.skill-manager/bin/cli/skill-manager home close-out \
     --home ../wt-<issue-number>-<slug>/.skill-manager \
-    --into <main-working-tree>/.skill-manager --json
+    --into "$main_working_tree"/.skill-manager --json
 ```
 
 Here the gate is **read-only**: it writes nothing, you run it for the verdict, and
@@ -419,8 +480,11 @@ the verdict is what the epic agent reads.
 
 `--into` is the **main working tree's** home — the one yours was cloned from, not
 `$PWD`'s nearest git toplevel, which from inside a worktree names that worktree's
-own home and would compare yours against itself. `references/skill-homes.md`
-records that as a fixed defect; a read-only gate pointed at the wrong home
+own home and would compare yours against itself. That is why step 0 computes it
+rather than leaving `<main-working-tree>` for you to substitute: it is the same
+term and the same resolution `references/skill-homes.md`, `references/complete.md`,
+`git-issue` and `git-epic-workflow` use. `references/skill-homes.md`
+records the wrong resolution as a fixed defect; a read-only gate pointed at the wrong home
 returns a confident wrong verdict, which is worse here than an error, because the
 epic agent reconciles on it. Name a **resolved CLI path** rather than a bare
 `skill-manager`, for the same reason that page gives: an older release first on
@@ -497,6 +561,10 @@ things change, and the full contract is "The evaluation ticket" in
 - [ ] Promotion predecessor merged and latest epic tip reconciled
 - [ ] Only the assigned ticket closed/promoted; no bypass or whole close used
 - [ ] PR opened with `Refs #<issue>` and base `epic/*`
+- [ ] Out-of-scope findings classified and appended to `deferment.backlog` in the
+      schema `<git-epic-workflow-skill>/references/deferment.md` owns — sequential
+      ID, `blocking` / `major` / `minor` severity, a real reproduction,
+      `disposition: pending` — and `deferment.blocking` applied to any blocking one
 - [ ] PR body carries `## Deferred findings` (each backlog ID with severity and a
       one-line summary, or `None`)
 - [ ] PR body carries `## Review input` — hot spots, decisions and overrides,

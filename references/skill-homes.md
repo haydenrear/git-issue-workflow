@@ -184,8 +184,27 @@ both derive it from the checkout, through one function (`project_home` in
 
 | Checkout being bootstrapped | Cloned from | `close-change.sh --into` |
 |---|---|---|
-| A **linked worktree** | its project home — `<main working tree>/.skill-manager` | the same path |
+| A **linked worktree** | its project home — `<main-working-tree>/.skill-manager` | the same path |
 | A **main working tree** | `$SKILL_MANAGER_HOME`, else `~/.skill-manager` | n/a — nothing closes it out |
+
+`<main-working-tree>` is the term the whole change-management set uses — this
+page, `references/complete.md`, `references/epic-ticket.md`, `git-issue`, and
+`git-epic-workflow` — and it is a **computed** value, not a placeholder you fill
+in from memory:
+
+```bash
+main_working_tree="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+```
+
+`git worktree list` names the main working tree first, always, and that answer
+does not depend on where the caller is standing — which is exactly why
+`main_checkout_root` in `scripts/lib.sh` is written that way and why
+`project_home` builds on it. Spell it out wherever an agent has to type a home
+path by hand: the failure this replaces is `<repo-root>` read as "$PWD's git
+toplevel", which from inside a worktree is that worktree, so `--into` names the
+home being assessed and the gate compares a home against itself. That is a
+confident wrong verdict rather than an error, and in epic mode the epic agent
+reconciles on it.
 
 `$SKILL_MANAGER_HOME` is **not** consulted for a worktree, deliberately. It used
 to be the default for both tiers while `close-change.sh` defaulted `--into` to
