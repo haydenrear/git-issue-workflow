@@ -189,13 +189,45 @@ reachable from every declared agent home by a link that resolves inside the
 checkout.
 
 What is left is not reducible **from here**. Two thirds of it is
-`skill-manager home clone`, whose code is in that repo, and it is copying
-rather than cloning: measured on the same 696 MB subtree of the same home,
-`cp -Rc` (APFS `clonefile`) takes **11.2 s** and `cp -R` takes **26.0 s**, and
-`home clone` runs at the second speed. Copy-on-write would take ~17 s per
-worktree off every `wt new` on this machine, and it is a `skill-manager`
-change, not one this repo can make. The remaining ~14 s is nine CLI starts,
-each of which is asked exactly one question that only the CLI can answer.
+`skill-manager home clone`, whose code is in that repo. Measured on the same
+696 MB subtree of the same home, `cp -Rc` (APFS `clonefile`) takes **11.2 s**
+and `cp -R` takes **26.0 s**, and `home clone` runs at the second speed. The
+remaining ~14 s is nine CLI starts, each of which is asked exactly one question
+that only the CLI can answer.
+
+> **CORRECTION, 2026-08-24.** This paragraph used to read the timing above as
+> evidence that `home clone` "is copying rather than cloning", and to claim that
+> copy-on-write "would take ~17 s per worktree off every `wt new`". **Both are
+> wrong. `home clone` is already copy-on-write**, and the error was inferring
+> space from wall clock.
+>
+> Measured by free-space delta on the same volume, with a positive control for
+> copy-on-write *and* a positive control for a true copy, never with `du` —
+> twice, by two people, on two different homes (skill-manager#251, DEF-098):
+>
+> | arm | home A | home B |
+> | --- | --- | --- |
+> | `cp -Rc` (clonefile), control | 1.2 MB | 39.7 MB |
+> | `cp -R` (true copy), control | 526.4 MB | — |
+> | **`skill-manager home clone`** | **31.0 MB** | **22.2 MB** |
+> | `cp -R` of exactly what `home clone` produced | 511.3 MB | 498.0 MB |
+>
+> The last row is the one that settles it: it copies the **same bytes**
+> `home clone` wrote, so nothing about which files are skipped can explain the
+> gap. `home clone` lands at clonefile's magnitude and 17–22× below a true copy.
+>
+> **The timings above stand; only the inference from them did not.** `home clone`
+> runs at `cp -R`'s wall clock while consuming `clonefile`'s blocks, because it
+> walks ~30k files, stats them, rewrites descriptors and verifies the copy — work
+> that costs seconds without costing space. So the ~17 s is still on the table as
+> a performance question, but it is **not** available by "switching to
+> copy-on-write", which is already what happens.
+>
+> **Consequence for planning: "a worktree home is nearly free" is justified for
+> DISK and not for WALL CLOCK.** A home per ticket costs roughly 4–6% of its
+> parent in real blocks and tens of seconds of setup. Budget the seconds; do not
+> budget the gigabytes. And measure either one with free space, never with `du`,
+> which over-reports a copy-on-write tree by roughly 30×.
 
 **Nothing is printed until the run finishes** — the contract is emitted
 atomically at the end, which is what makes the one-line summary possible. So if
