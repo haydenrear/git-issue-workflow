@@ -225,14 +225,21 @@ Two consequences you have to act on, and neither is optional:
 Downward (root → project → worktree) is a copy and needs nothing from you.
 **Upward is the whole difficulty**, and it is why the close-out order matters.
 
-**A copy is not a copy of everything the home can do**, and that is deliberate.
-Your worktree home *inherits* the derived artifacts its parent holds and
-*declares* the rest without building them, so `skill-manager artifacts list`
-will show `declared-only` rows and some entry points will refuse with exit 86
-until you run `skill-manager build <id>`. **On a home you just created, that is
-healthy, and rebuilding on arrival is waste.** Do not diagnose it from the
-source — the contract is stated once, at
-`$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md`.
+**A copy is not a copy of everything the home can do**, and that is deliberate:
+your worktree home inherits some of its parent's derived artifacts and only
+declares the rest. Go to
+`${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/plugins/skt/skills/skt/references/derived-artifacts.md` (absent in a home that does not have the skt plugin installed)
+— not to the source — if any of these is your question:
+
+- `skill-manager artifacts list` shows rows I do not understand, or
+  `artifacts stale` reports a count on a home I have not touched;
+- a command on my `PATH` refuses instead of running;
+- is this fresh home broken, or is this what a healthy one looks like?
+- should I rebuild something, and how?
+
+**Do not diagnose a new worktree home from the source.** That page exists
+because the last two agents who did got the root cause wrong, in opposite
+directions.
 
 ## Is this an integration repo?
 
@@ -403,7 +410,7 @@ receiver flow is `references/agent-tag-pr.md`.
 | Handed a ticket that declares a goal, or one whose slice **is** the measurement (`role: evaluation`) | `references/goal-signal.md` |
 | Wondering *why* `wt` prints what it prints | `references/worktrees.md` |
 | Working on, or debugging, a per-checkout Skill Manager home | `references/skill-homes.md` |
-| Wondering what a derived artifact is, what your home inherits versus declares, or whether to rebuild | `$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md` (skt owns it; this skill does not restate it) |
+| Wondering what a derived artifact is, what your home inherits versus declares, or whether to rebuild | `${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/plugins/skt/skills/skt/references/derived-artifacts.md` — skt owns it; this skill does not restate it, and it is absent in a home without skt |
 
 ## Boundaries
 

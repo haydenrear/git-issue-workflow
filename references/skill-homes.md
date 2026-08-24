@@ -353,18 +353,12 @@ Two consequences worth stating:
   child-home record and the ledger land in the operator's global home.
 - **A clone is not a full copy, and that is the design, not a shortfall.**
   `cache/`, `tmp/`, `logs/`, `venvs/`, `tools/` and `npm/` are skipped (they are
-  re-derivable, and copying `tools/` costs 1.3 GB). What the clone does instead
-  is **declare** the artifacts under those roots in its own
-  `artifacts.lock.toml` and write a **cold shim** at each entry point whose
-  backing tree it does not carry, so the tool refuses by naming the command that
-  builds it rather than failing in the kernel's words.
+  re-derivable, and copying `tools/` costs 1.3 GB). What the clone does with the
+  artifacts under those roots — and what you should do about it, which is
+  usually nothing — **is stated once and is not repeated here:**
+  `${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/plugins/skt/skills/skt/references/derived-artifacts.md` (absent in a home that does not have the skt plugin installed). Read it before concluding a fresh worktree home is damaged.
 
-  **The whole contract — inherit versus declare, and when to rebuild — is
-  stated once and is not repeated here:**
-  `$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md`.
-  Read it before concluding a fresh worktree home is damaged.
-
-  Two things about it, both measured:
+  Two things this page still owns, both measured:
   - Run any `sync` with the **agent-home variables set**, not with
     `SKILL_MANAGER_HOME` alone. `sync` ends in a binding step, and with
     `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `GEMINI_HOME` unset that step writes
@@ -374,14 +368,15 @@ Two consequences worth stating:
     `home clone` itself prints is the unsafe one.
   - **This page used to say `home verify` refuses a clone until those links are
     re-provisioned, and that `sync` could not do it — "a skill-manager gap".
-    That is no longer true and the gap is closed.** Re-measured 2026-08-23 on a
-    fresh ticket-worktree clone: `bin/cli/jinja2 ->
-    ../../venvs/jinja2-cli/bin/jinja2` is now a cold shim that exits **86** and
-    prints `build it: skill-manager build 'cli-shim:pip/jinja2-cli[yaml]'`, and
-    `skill-manager home verify --home <clone>` exits **0** with *"every
-    reference … resolves"*. Declared-and-not-built is reported and **not
-    counted** against the verdict. Do not chase `home verify` to a green it
-    already has.
+    RETRACTED: re-measured 2026-08-23, a fresh ticket-worktree clone passes
+    `skill-manager home verify` (exit 0) untouched.** The claim is left here as
+    a correction so nobody restores it from memory. Why it is no longer true,
+    and what the states actually are, is the artifact page above — this bullet
+    deliberately does not reproduce its details. **Do not chase `home verify` to
+    a green it already has.**
+
+    A link that *genuinely* does not resolve is a different thing and **is**
+    still refused (exit 1, measured the same day) — see the next bullet.
 
 - **A clone of an empty home is an empty home** (git-integration-skill#10).
   Cloning copies units; it never *installs* any. A source home holding no skills
@@ -484,15 +479,17 @@ Nothing was withheld, with one deliberate exception:
   counted line: `warning: N link(s) in this home do not resolve …`, with the
   links themselves in the log.
 
-  **Re-dated 2026-08-23, same measurement as the clone bullet above: that
-  remaining `keeps refusing` clause is stale too.** A lazy clone's unbuilt entry
-  points are cold shims, `home verify` exits **0** on them, and they are reported
-  and *not counted*. The `warning: N link(s) …` line is still real, but it now
-  belongs to the genuinely **unresolved** category — a reference nothing in this
-  home produces and nothing holds — which is a different thing from
-  declared-and-not-built and is the only one of the two that moves an exit code.
-  The distinction, and how to tell them apart, is in
-  `$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md`.
+  **Re-dated 2026-08-23, same correction as the clone bullet above: that
+  remaining `keeps refusing` clause is stale too**, because a lazy clone no
+  longer produces the link it is about. The `warning: N link(s) …` line is still
+  real and still worth acting on — it now reports only references that
+  *genuinely* do not resolve, which `home verify` does still refuse over (exit 1,
+  measured). Telling that apart from the ordinary unbuilt state is the artifact
+  page above; this page does not restate the distinction.
+
+  `scripts/bootstrap-home.sh` and `scripts/selftest.sh` carried the same
+  retracted premise in comments and were corrected in the same change — grep
+  them for `RE-MEASURED 2026-08-23` if you are auditing this.
 
 `new-change.sh` does the same thing: the contract on stdout, and one line on
 stderr naming a log that holds its own narration **and** the bootstrap's.

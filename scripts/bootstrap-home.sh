@@ -749,13 +749,29 @@ skill_count() {
   printf '%s\n' "$n"
 }
 
-# Symlinks inside the home that do not resolve. `home clone` skips venvs/,
-# tools/, npm/ and cache/ by design, so any link INTO one of them arrives
-# dangling — and `skill-manager home verify` refuses the home for exactly this,
-# which is how bootstrap came to report `verified` on a home `home verify`
-# rejects. Found here with `find` rather than with a second CLI start: it is the
-# same fact, it costs no JVM, and it is still answerable on the --force path
-# where no clone report exists.
+# Symlinks inside the home that do not resolve. `skill-manager home verify`
+# refuses a home over exactly these, which is how bootstrap came to report
+# `verified` on a home `home verify` rejects. Found here with `find` rather than
+# with a second CLI start: it is the same fact, it costs no JVM, and it is still
+# answerable on the --force path where no clone report exists.
+#
+# RE-MEASURED 2026-08-23, AND THE TRIGGER CHANGED WHILE THE CONSEQUENCE DID NOT.
+# This comment used to say `home clone` skips venvs/, tools/, npm/ and cache/,
+# "so any link INTO one of them arrives dangling". That is no longer true. A
+# lazy clone (`lazy_artifacts = true`, the default for a project or worktree
+# home) writes a regular-file COLD SHIM at such a path -- a 914-byte script that
+# exits 86 naming `skill-manager build <id>` -- not a symlink. `find -type l`
+# with `! -e` therefore finds NOTHING on a healthy lazy clone, and this function
+# correctly returns empty there.
+#
+# What it still finds, and what `home verify` still refuses over, is a link that
+# genuinely does not resolve. Measured both ways on one home: clean lazy clone
+# -> "every reference ... resolves", exit 0; the same home plus one planted
+# `bin/cli/fixture-dangling -> ../../venvs/fixture-missing/bin/tool` -> "1
+# reference(s) ... do not resolve", exit 1. So the report below is not stale --
+# its PREMISE was. The contract this sits inside is stated once, in
+# ${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/plugins/skt/skills/skt/references/derived-artifacts.md
+# (absent in a home without skt).
 dangling_home_links() {
   command find "$STORE/bin" -type l 2>/dev/null | while IFS= read -r link; do
     [ -e "$link" ] || printf '%s -> %s\n' "${link#"$STORE"/}" "$(readlink "$link")"
@@ -1659,12 +1675,22 @@ EOF
   fi
 
   # Advisory, and the reason bootstrap used to disagree with `skill-manager home
-  # verify`: that command REFUSES a home holding an unresolvable reference, and
-  # a clone always produces some, because it skips venvs/, tools/, npm/ and
-  # cache/ by design. Reported rather than fatal because the remedy `home verify`
-  # itself prints is NOT a fixpoint (measured — see the note where that remedy
-  # used to be printed from here), so refusing would make every honest bootstrap
-  # fail on a defect this repo cannot fix.
+  # verify`: that command REFUSES a home holding an unresolvable reference.
+  #
+  # It used to say "and a clone always produces some". RETRACTED, re-measured
+  # 2026-08-23: a lazy clone produces NONE -- it writes cold shims, which are
+  # regular files that resolve -- so on a modern clone this branch is correctly
+  # silent and `home verify` exits 0. The branch is kept because a genuinely
+  # unresolvable link is still possible and is still refused (exit 1, measured).
+  #
+  # Reported rather than fatal for a reason that also needs re-dating: the
+  # remedy `home verify` printed AT THE TIME was `sync --force-scripts`, which
+  # was measured not to be a fixpoint. It now prints `skill-manager build
+  # --stale` instead, which is a different command and has not been measured
+  # against this case here. Advisory is still the right call -- bootstrap should
+  # not fail an operator over a home-provisioning defect it cannot fix -- but do
+  # not cite the old fixpoint measurement as if it were about the current
+  # remedy.
   #
   # ONE LINE ON THE CONSOLE, WITH THE COUNT, and the links themselves in the log.
   # The count is the actionable part — it is what `home verify` will refuse over —
@@ -1752,11 +1778,18 @@ info "print-env: eval \"\$($SCRIPT_DIR/bootstrap-home.sh --root $ROOT --print-en
 # `<pinned env> skill-manager sync --force-scripts` to re-provision the shims a
 # clone left dangling, and then — in its own text, three lines later — that it
 # "does NOT recreate <home>/venvs, so a link INTO venvs/ stays dangling and
-# `skill-manager home verify` keeps refusing this home". Measured, and that is
-# why the sentence was there: `home verify` rc=1 on
+# `skill-manager home verify` keeps refusing this home". Measured AT THE TIME,
+# and that is why the sentence was there: `home verify` rc=1 on
 # `bin/cli/jinja2 -> ../../venvs/jinja2-cli/bin/jinja2` -> run the remedy (it
 # completes) -> `home verify` rc=1 again, identical message, <home>/venvs still
 # empty.
+#
+# THAT MEASUREMENT IS HISTORICAL. Do not restore the paragraph on the strength
+# of it. Re-measured 2026-08-23 on a lazy clone: the same `bin/cli/jinja2` is a
+# regular-file cold shim that exits 86 naming `skill-manager build
+# 'cli-shim:pip/jinja2-cli[yaml]'`, `home verify` exits 0 on that home, and that
+# build command DOES provision `venvs/jinja2-cli` and clear it. The deletion was
+# right; its stated reason has expired.
 #
 # A remedy that its own paragraph says does not remedy is not detail, and moving
 # it to the log would only make it cheaper to keep. What survives is the fact —
