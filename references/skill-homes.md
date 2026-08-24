@@ -479,10 +479,20 @@ Nothing was withheld, with one deliberate exception:
   `sync --force-scripts` to re-provision the links a clone left dangling. Its own
   next sentence said the command "does NOT recreate `<home>/venvs`, so a link
   INTO `venvs/` stays dangling and `skill-manager home verify` keeps refusing
-  this home" — measured: `home verify` rc=1 → run the remedy → rc=1, identical
-  message, `venvs/` still empty. What survives is the *fact*, one counted line:
-  `warning: N link(s) in this home do not resolve …`, with the links themselves
-  in the log.
+  this home" — measured at the time: `home verify` rc=1 → run the remedy → rc=1,
+  identical message, `venvs/` still empty. What survives is the *fact*, one
+  counted line: `warning: N link(s) in this home do not resolve …`, with the
+  links themselves in the log.
+
+  **Re-dated 2026-08-23, same measurement as the clone bullet above: that
+  remaining `keeps refusing` clause is stale too.** A lazy clone's unbuilt entry
+  points are cold shims, `home verify` exits **0** on them, and they are reported
+  and *not counted*. The `warning: N link(s) …` line is still real, but it now
+  belongs to the genuinely **unresolved** category — a reference nothing in this
+  home produces and nothing holds — which is a different thing from
+  declared-and-not-built and is the only one of the two that moves an exit code.
+  The distinction, and how to tell them apart, is in
+  `$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md`.
 
 `new-change.sh` does the same thing: the contract on stdout, and one line on
 stderr naming a log that holds its own narration **and** the bootstrap's.
