@@ -351,26 +351,37 @@ Two consequences worth stating:
   `project resolve` when the parent home lives somewhere else. Either way,
   never resolve before the local home exists — that is the case where the
   child-home record and the ledger land in the operator's global home.
-- **A clone is not a full copy.** `cache/`, `tmp/`, `logs/`, `venvs/`, `tools/`
-  and `npm/` are skipped (they are re-derivable, and copying `tools/` costs
-  1.3 GB). Any CLI shim whose target was under one of those arrives **dangling**,
-  and `skill-manager home verify` refuses the home while it is. Two things about
-  the remedy, both measured:
-  - Run it with the **agent-home variables set**, not with `SKILL_MANAGER_HOME`
-    alone. `sync` ends in a binding step, and with `CLAUDE_CONFIG_DIR`,
-    `CODEX_HOME` and `GEMINI_HOME` unset that step writes the operator's
-    `~/.claude.json`, `~/.codex/config.toml` and `~/.gemini/settings.json`
-    (`ADDED claude (~/.claude.json)` — skill-manager#145). `bootstrap-home.sh`
-    prints the safe spelling; the line `home clone` itself prints is the unsafe
-    one.
-  - **It is not a fixpoint for links into `venvs/`.** `home verify` rc=1 on
-    `bin/cli/jinja2 -> ../../venvs/jinja2-cli/bin/jinja2` → run the remedy it
-    prints → `home verify` rc=1 again, identical message, `<home>/venvs` still
-    empty. Nothing in `sync` recreates a venv the clone deliberately skipped, so
-    such a home cannot pass `home verify` by following `home verify`'s own
-    instruction. That is a skill-manager gap; only the tools those links name are
-    affected, so `bootstrap-home.sh` reports it and moves on rather than
-    refusing.
+- **A clone is not a full copy, and that is the design, not a shortfall.**
+  `cache/`, `tmp/`, `logs/`, `venvs/`, `tools/` and `npm/` are skipped (they are
+  re-derivable, and copying `tools/` costs 1.3 GB). What the clone does instead
+  is **declare** the artifacts under those roots in its own
+  `artifacts.lock.toml` and write a **cold shim** at each entry point whose
+  backing tree it does not carry, so the tool refuses by naming the command that
+  builds it rather than failing in the kernel's words.
+
+  **The whole contract — inherit versus declare, and when to rebuild — is
+  stated once and is not repeated here:**
+  `$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md`.
+  Read it before concluding a fresh worktree home is damaged.
+
+  Two things about it, both measured:
+  - Run any `sync` with the **agent-home variables set**, not with
+    `SKILL_MANAGER_HOME` alone. `sync` ends in a binding step, and with
+    `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `GEMINI_HOME` unset that step writes
+    the operator's `~/.claude.json`, `~/.codex/config.toml` and
+    `~/.gemini/settings.json` (`ADDED claude (~/.claude.json)` —
+    skill-manager#145). `bootstrap-home.sh` prints the safe spelling; the line
+    `home clone` itself prints is the unsafe one.
+  - **This page used to say `home verify` refuses a clone until those links are
+    re-provisioned, and that `sync` could not do it — "a skill-manager gap".
+    That is no longer true and the gap is closed.** Re-measured 2026-08-23 on a
+    fresh ticket-worktree clone: `bin/cli/jinja2 ->
+    ../../venvs/jinja2-cli/bin/jinja2` is now a cold shim that exits **86** and
+    prints `build it: skill-manager build 'cli-shim:pip/jinja2-cli[yaml]'`, and
+    `skill-manager home verify --home <clone>` exits **0** with *"every
+    reference … resolves"*. Declared-and-not-built is reported and **not
+    counted** against the verdict. Do not chase `home verify` to a green it
+    already has.
 
 - **A clone of an empty home is an empty home** (git-integration-skill#10).
   Cloning copies units; it never *installs* any. A source home holding no skills

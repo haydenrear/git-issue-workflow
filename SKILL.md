@@ -225,6 +225,15 @@ Two consequences you have to act on, and neither is optional:
 Downward (root → project → worktree) is a copy and needs nothing from you.
 **Upward is the whole difficulty**, and it is why the close-out order matters.
 
+**A copy is not a copy of everything the home can do**, and that is deliberate.
+Your worktree home *inherits* the derived artifacts its parent holds and
+*declares* the rest without building them, so `skill-manager artifacts list`
+will show `declared-only` rows and some entry points will refuse with exit 86
+until you run `skill-manager build <id>`. **On a home you just created, that is
+healthy, and rebuilding on arrival is waste.** Do not diagnose it from the
+source — the contract is stated once, at
+`$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md`.
+
 ## Is this an integration repo?
 
 Decide first — it changes provisioning and fan-out. It **is** an integration repo
@@ -394,6 +403,7 @@ receiver flow is `references/agent-tag-pr.md`.
 | Handed a ticket that declares a goal, or one whose slice **is** the measurement (`role: evaluation`) | `references/goal-signal.md` |
 | Wondering *why* `wt` prints what it prints | `references/worktrees.md` |
 | Working on, or debugging, a per-checkout Skill Manager home | `references/skill-homes.md` |
+| Wondering what a derived artifact is, what your home inherits versus declares, or whether to rebuild | `$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md` (skt owns it; this skill does not restate it) |
 
 ## Boundaries
 
