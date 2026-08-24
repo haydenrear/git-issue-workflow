@@ -353,7 +353,9 @@ Two consequences worth stating:
   child-home record and the ledger land in the operator's global home.
 - **A clone is not a full copy, and that is the design, not a shortfall.**
   `cache/`, `tmp/`, `logs/`, `venvs/`, `tools/` and `npm/` are skipped (they are
-  re-derivable, and copying `tools/` costs 1.3 GB). What the clone does with the
+  re-derivable, and copying `tools/` costs 1.3 GB). **`pm/` is deliberately NOT
+  in that list** — it holds the pinned package managers, and a home that cannot
+  run `uv` cannot rebuild anything. What the clone does with the
   artifacts under those roots — and what you should do about it, which is
   usually nothing — **is stated once and is not repeated here:**
   `${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/plugins/skt/skills/skt/references/derived-artifacts.md` (absent in a home that does not have the skt plugin installed). Read it before concluding a fresh worktree home is damaged.

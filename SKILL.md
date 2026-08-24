@@ -239,7 +239,7 @@ declares the rest. Go to
 
 **Do not diagnose a new worktree home from the source.** That page exists
 because the last two agents who did got the root cause wrong, in opposite
-directions.
+directions. If that path is not there, the page is `skills/skt/references/derived-artifacts.md` in `github.com/haydenrear/skill-publisher-skill` — read it there, or `skill-manager install github:haydenrear/skill-publisher-skill`. Do not fall back to reading the CLI source; that is what produced the two wrong answers the page exists to correct.
 
 ## Is this an integration repo?
 
