@@ -228,13 +228,19 @@ git -C "$PROJ" add -A
 git -C "$PROJ" -c commit.gpgsign=false commit -qm "fixture"
 seed_home "$PROJ_HOME" "project-only-unit"
 
-# A CLI shim whose target lives under a directory `home clone` deliberately
-# SKIPS (venvs/, tools/, npm/, cache/). Every real home on this machine has one
-# — `bin/cli/jinja2 -> ../../venvs/jinja2-cli/bin/jinja2` is the measured case —
-# and the copy therefore arrives with a link that does not resolve. That is what
-# `skill-manager home verify` refuses a home for, and bootstrap-home.sh used to
-# print `verified` beside it without a word. Seeded here so the fixture has the
-# property the real homes have.
+# A CLI shim whose target does not resolve. `skill-manager home verify` refuses
+# a home for exactly this -- re-measured 2026-08-23: exit 1, "1 reference(s) ...
+# do not resolve" -- and bootstrap-home.sh used to print `verified` beside it
+# without a word.
+#
+# THIS IS NOW A SYNTHETIC FIXTURE, NOT A COPY OF REALITY, AND THAT IS FINE.
+# It used to be justified as "every real home on this machine has one --
+# `bin/cli/jinja2 -> ../../venvs/jinja2-cli/bin/jinja2` is the measured case".
+# RETRACTED: on a lazy clone that path is a regular-file COLD SHIM, not a
+# symlink, so `home verify` exits 0 and a real clone plants nothing here. The
+# fixture is planted deliberately so the assertions below have something to
+# assert against. Do NOT delete them on the grounds that clones no longer reach
+# the state -- a home can still reach it, and it is still refused.
 mkdir -p "$PROJ_HOME/bin/cli" "$PROJ_HOME/venvs/jinja2-cli/bin"
 printf '#!/bin/sh\nexit 0\n' > "$PROJ_HOME/venvs/jinja2-cli/bin/jinja2"
 chmod +x "$PROJ_HOME/venvs/jinja2-cli/bin/jinja2"
@@ -378,9 +384,17 @@ check "$(yesno contains "home verify" "$DANGLING_LINE")" \
 # told the operator to run `<pinned env> skill-manager sync --force-scripts` and
 # then, three lines later in its own text, that the command "does NOT recreate
 # <home>/venvs, so a link INTO venvs/ stays dangling and `skill-manager home
-# verify` keeps refusing this home". Measured, and that is why the sentence
-# existed: `home verify` rc=1 -> run the remedy -> `home verify` rc=1, identical
-# message, <home>/venvs still empty.
+# verify` keeps refusing this home". Measured AT THE TIME, and that is why the
+# sentence existed: `home verify` rc=1 -> run the remedy -> `home verify` rc=1,
+# identical message, <home>/venvs still empty.
+#
+# RE-DATED 2026-08-23, same correction as the fixture note above: a lazy clone
+# no longer produces that link at all -- `bin/cli/jinja2` is a regular-file cold
+# shim and `home verify` exits 0 -- and the remedy the command prints today is
+# `skill-manager build --stale`, not `sync --force-scripts`. The deletion and
+# the sweep below are still right; only the measurement that motivated them has
+# expired. The sweep asserts that no script OFFERS `sync --force-scripts`, which
+# is independent of why it stopped being worth offering.
 #
 # A remedy whose own paragraph says it does not remedy is not detail. It is
 # deleted rather than demoted, and the assertion is that NO SCRIPT HERE OFFERS IT

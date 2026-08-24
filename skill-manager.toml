@@ -51,5 +51,5 @@ on_path = "gh"
 
 [skill]
 name = "git-issue-workflow"
-version = "0.4.0"
+version = "0.4.1"
 description = "Execute a git-issue work order in its selected mode: for marker-assigned epic tickets, branch from the declared origin/epic branch, validate and promote only the assigned spec ticket, then open an evidence-backed PR to the epic branch for external review; for unmarked tickets, preserve the ordinary/integration worktree, full close-out, merge verification, fan-out, and agent-tagged PR receiver workflow. A ticket that declares goals reads its expected effect before implementing, runs the declared local signal as advisory evidence beside the REQUIRED matrix, and reports goal contribution in the PR; a role: evaluation ticket runs the owned goal harness on the integrated epic tip and reports a met/missed/unmeasured verdict without tuning, selective re-runs, or scope widening."
