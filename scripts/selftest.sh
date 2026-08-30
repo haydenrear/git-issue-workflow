@@ -2274,6 +2274,187 @@ check "$(yesno test -z "$CLAIMERS")" \
   "no_script_here_claims_nothing_was_installed_without_counting" \
   "these still assert it in prose instead of reporting the measured count:$CLAIMERS"
 
+# ------------------- a failed CLI resolution names WHICH failure it measured
+#
+# HBR-2. `pick_cli`'s probe was
+#
+#   cli_has_home() { "$1" home clone --help 2>&1 | grep -q -- '--to'; }
+#
+# and in a pipeline the function's status is GREP's, so the candidate's own exit
+# code was discarded: 0, 2, 79 and 127 all arrived as "no `--to`". Every one of
+# them then rendered as the same sentence, `(too old — \`home clone\` is
+# missing)`, including the case that is not about a version at all — another
+# home's ENTRYPOINT refusing because SKILL_MANAGER_HOME named a third home,
+# which the shim reports with its own exit code 79
+# (LauncherShims.HOME_MISMATCH_EXIT_CODE) precisely so a caller can tell.
+# `pick_cli` runs before this script exports SKILL_MANAGER_HOME, so the probe
+# runs under the CALLER's ambient home; that is the trigger.
+#
+# The measured baseline was 0 of 3: a refusal, a genuinely old build, and no CLI
+# at all were indistinguishable. The property is that they are DISTINCT and each
+# names its own cause, so all three are seeded and all three messages are read.
+#
+# THE TWO REFUSAL SEEDS ARE NOT REDUNDANT, and this is the whole reason the fix
+# is on two sides of a version skew. `refused_new` answers `--help` normally
+# (exit 0, `--to` present) — the shape of a CLI new enough to have been taught
+# that a help request names no home — so ONLY the structural check can catch it.
+# `refused_old` exits 79 and prints nothing — the shape of every build already
+# installed — so only the exit code can. Delete either seed and one half of the
+# fleet goes back to reading a refusal as an old build.
+
+step "A failed CLI resolution names the cause it measured, not a version"
+
+HBR2="$SCRATCH/cli-verdicts"
+mkdir -p "$HBR2/nobin" "$HBR2/oldbin" \
+         "$HBR2/refused-new/.skill-manager/bin/cli" \
+         "$HBR2/refused-old/.skill-manager/bin/cli"
+seed_home "$HBR2/refused-new/.skill-manager" "other-home-unit"
+seed_home "$HBR2/refused-old/.skill-manager" "other-home-unit"
+seed_home "$HBR2/aimed-at/.skill-manager" "aimed-at-unit"
+
+# A home entrypoint from a build that ANSWERS a help request.
+cat > "$HBR2/refused-new/.skill-manager/bin/cli/skill-manager" <<'EOF'
+#!/bin/sh
+echo "Usage: skill-manager home clone [-hv] [--from=<from>] --to=<to>"
+exit 0
+EOF
+# A home entrypoint from a build that refuses one, with its real exit code.
+cat > "$HBR2/refused-old/.skill-manager/bin/cli/skill-manager" <<'EOF'
+#!/bin/sh
+echo "skill-manager: refusing to run against a home you did not name." >&2
+exit 79
+EOF
+# A genuinely old build: 0.19.2 answered an unknown subcommand with top-level
+# usage and exit 0, which is why the probe reads the text at all.
+cat > "$HBR2/oldbin/skill-manager" <<'EOF'
+#!/bin/sh
+echo "Usage: skill-manager [-hv] [COMMAND]"
+echo "Commands: search install remove list sync"
+exit 0
+EOF
+chmod +x "$HBR2/refused-new/.skill-manager/bin/cli/skill-manager" \
+         "$HBR2/refused-old/.skill-manager/bin/cli/skill-manager" \
+         "$HBR2/oldbin/skill-manager"
+
+# One fresh checkout per mode. It must carry no skill-manager of its own, or the
+# candidate under test is not the one that gets picked.
+hbr2_root() {
+  local r="$SCRATCH/cli-verdict-root"
+  rm -rf "$r"; mkdir -p "$r"
+  git -C "$r" init -q -b main
+  git -C "$r" config user.email selftest@example.invalid
+  git -C "$r" config user.name "selftest"
+  printf 'x\n' > "$r/README.md"
+  git -C "$r" add -A
+  git -C "$r" -c commit.gpgsign=false commit -qm "fixture"
+  printf '%s\n' "$r"
+}
+
+# SKILL_MANAGER_CLI is unset deliberately: a pin short-circuits the search this
+# is about. SKILL_MANAGER_HOME names a home that is NEITHER candidate's, which
+# is the ambient-home condition that triggers the refusal.
+hbr2_run() {
+  local bin="$1" out="$2" root
+  root="$(hbr2_root)"
+  env -u SKILL_MANAGER_CLI \
+      HOME="$FAKE_HOME" \
+      JAVA_TOOL_OPTIONS="-Duser.home=$FAKE_HOME" \
+      SKILL_MANAGER_HOME="$HBR2/aimed-at/.skill-manager" \
+      PATH="$bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+      bash "$SCRIPT_DIR/bootstrap-home.sh" --root "$root" \
+        --source "$HBR2/aimed-at/.skill-manager" > "$out" 2>&1 || true
+}
+
+hbr2_run "$HBR2/refused-new/.skill-manager/bin/cli" "$SCRATCH/verdict-refused-new.log"
+hbr2_run "$HBR2/refused-old/.skill-manager/bin/cli" "$SCRATCH/verdict-refused-old.log"
+hbr2_run "$HBR2/oldbin"                             "$SCRATCH/verdict-old.log"
+hbr2_run "$HBR2/nobin"                              "$SCRATCH/verdict-none.log"
+
+REFUSED_NEW="$(cat "$SCRATCH/verdict-refused-new.log")"
+REFUSED_OLD="$(cat "$SCRATCH/verdict-refused-old.log")"
+GENUINELY_OLD="$(cat "$SCRATCH/verdict-old.log")"
+NO_CLI="$(cat "$SCRATCH/verdict-none.log")"
+
+# Non-vacuity first, in this file's usual shape: every run has to have REACHED
+# the CLI search and failed there. Without this, "the word 'too old' is absent"
+# is true of a run that died on its arguments, and the three checks below would
+# pass on nothing.
+for pair in "REFUSED_NEW:$SCRATCH/verdict-refused-new.log" \
+            "REFUSED_OLD:$SCRATCH/verdict-refused-old.log" \
+            "GENUINELY_OLD:$SCRATCH/verdict-old.log" \
+            "NO_CLI:$SCRATCH/verdict-none.log"; do
+  check "$(yesno command grep -q 'no skill-manager CLI' "${pair#*:}")" \
+    "the_${pair%%:*}_seed_actually_failed_in_the_cli_search" \
+    "${pair#*:} did not reach pick_cli's failure, so the verdict checks below prove nothing"
+done
+
+# The VERDICT LABEL, with its colon, not the bare word. `refusing` appears in
+# the shim's own text wherever a refusal is relayed, so `contains refused` is
+# satisfied by a run that reported "too old" and merely quoted the refusal
+# further down. `refused: ` is the report's own claim about the candidate, and
+# it is the thing that was wrong.
+check "$(yesno contains 'refused: ' "$REFUSED_NEW")" \
+  "a_cross_home_refusal_from_a_build_that_answers_help_is_named_a_refusal" \
+  "see $SCRATCH/verdict-refused-new.log"
+check "$(yesno absent_substring 'too old' "$REFUSED_NEW")" \
+  "and_is_not_reported_as_a_version_problem" \
+  "the structural check did not fire; see $SCRATCH/verdict-refused-new.log"
+check "$(yesno contains 'refused: ' "$REFUSED_OLD")" \
+  "a_cross_home_refusal_signalled_only_by_exit_79_is_named_a_refusal" \
+  "the exit code is still being discarded; see $SCRATCH/verdict-refused-old.log"
+check "$(yesno absent_substring 'too old' "$REFUSED_OLD")" \
+  "and_it_too_is_not_reported_as_a_version_problem" \
+  "see $SCRATCH/verdict-refused-old.log"
+# AND the shim's own words survived to the reader. This is the half a
+# status-only fix would have lost, and skt (HBR-3) is downstream of it: it
+# recognises 79 as a refusal, but on this path it was relaying bootstrap's claim
+# because the shim's text never reached it.
+check "$(yesno contains 'refusing to run against a home you did not name' "$REFUSED_OLD")" \
+  "and_the_shims_own_words_reach_the_reader_not_just_a_corrected_verdict" \
+  "the probe still swallows the candidate's stderr; see $SCRATCH/verdict-refused-old.log"
+
+# These two are REGRESSION guards rather than discriminators: an old build was
+# already named "too old" before this change, and must keep being.
+check "$(yesno contains 'too old' "$GENUINELY_OLD")" \
+  "a_build_that_really_lacks_home_clone_is_named_too_old" \
+  "see $SCRATCH/verdict-old.log"
+check "$(yesno absent_substring 'refused: ' "$GENUINELY_OLD")" \
+  "and_an_old_build_is_not_called_a_refusal" \
+  "see $SCRATCH/verdict-old.log"
+
+check "$(yesno contains 'no skill-manager CLI was found at all' "$NO_CLI")" \
+  "no_cli_at_all_is_named_as_absence" \
+  "see $SCRATCH/verdict-none.log"
+# The specific wrong advice, not a generic one: the message this replaces told
+# an operator with no skill-manager to install a NEWER one, which is a version
+# remedy for a thing that has no version.
+check "$(yesno absent_substring 'install a newer skill-manager' "$NO_CLI")" \
+  "and_absence_does_not_recommend_upgrading_something_that_is_not_there" \
+  "see $SCRATCH/verdict-none.log"
+
+# The defect stated as the property rather than as the message: no probe here
+# may put a candidate's exit status into a pipeline, because a pipeline replaces
+# it with the last stage's. The pattern is anchored to skip COMMENTS, because
+# bootstrap-home.sh quotes the defective line in the note explaining the fix and
+# a check that matched its own documentation would be red forever.
+PIPE_DECOY="$SCRATCH/piped-probe-decoy.txt"
+printf 'cli_has_home() { "$1" home clone --help 2>&1 | grep -q -- %s--to%s; }\n' "'" "'" \
+  > "$PIPE_DECOY"
+check "$(yesno command grep -q '^[^#]*--help 2>&1 |[[:space:]]*grep' "$PIPE_DECOY")" \
+  "the_discarded_status_pattern_matches_the_probe_that_shipped" \
+  "the pattern does not match the defective line, so the next check proves nothing"
+PIPED=""
+for f in "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR/wt"; do
+  [ -f "$f" ] || continue
+  case "$(basename "$f")" in selftest.sh) continue ;; esac
+  if command grep -q '^[^#]*--help 2>&1 |[[:space:]]*grep' "$f"; then
+    PIPED="$PIPED $(basename "$f")"
+  fi
+done
+check "$(yesno test -z "$PIPED")" \
+  "no_script_here_probes_a_cli_through_a_pipeline_that_eats_its_exit_code" \
+  "these still discard the candidate's status:$PIPED"
+
 # ------------------------------ every scripts/ file this skill names, it ships
 #
 # `references/skill-homes.md` and `references/onboarding.md` both said "copy

@@ -599,50 +599,238 @@ require_local_home() {
 # -------------------------------------------------------------------- CLI
 
 # Which skill-manager runs this. Same first rule as
-# HomeDescriptor.resolveCli — an explicit SKILL_MANAGER_CLI pin wins — but
-# deliberately NOT the same order after that: PATH comes before a CLI the
-# checkout itself ships, because a checkout's copy can be older than the
-# installed release. (Measured on this repo: a parent worktree carries the
-# parent's *committed snapshot* of a constituent, which predated `home`
-# entirely, while the main tree's working copy had it.)
+# HomeDescriptor.resolveCli — an explicit SKILL_MANAGER_CLI pin wins.
 #
 # The capability probe exists because `home` is newer than the released CLI:
 # without it a stale skill-manager is picked and fails deep inside the
 # sequence, after directories have already been created.
 #
-# The probe reads the help TEXT rather than the exit status on purpose: the
-# released 0.19.2 answers an unknown subcommand by printing top-level usage and
-# exiting 0 (newer builds exit 2), so a status-only probe accepts a CLI with no
-# `home` command at all and the failure surfaces later, mid-sequence.
-cli_has_home() { "$1" home clone --help 2>&1 | grep -q -- '--to'; }
+# The probe reads the help TEXT rather than the exit status alone, and that is
+# still deliberate: the released 0.19.2 answers an unknown subcommand by
+# printing top-level usage and exiting 0 (newer builds exit 2), so a
+# status-only probe accepts a CLI with no `home` command at all.
+#
+# HBR-2: IT READ THE TEXT *INSTEAD OF* THE STATUS, AND THREW THE STATUS AWAY.
+# The probe was one line:
+#
+#   cli_has_home() { "$1" home clone --help 2>&1 | grep -q -- '--to'; }
+#
+# In a pipeline the function's status is GREP's, so the candidate's own exit
+# code never survived — 0, 2, 79 and 127 all arrived as "no `--to`", and the
+# sole discriminator left was whether a string appeared. So every way of
+# failing rendered as the same sentence:
+#
+#   on PATH: <other home>/bin/cli/skill-manager (too old — `home clone` is missing)
+#
+# about a CLI that was not old and does have `home clone`. It is another home's
+# ENTRYPOINT, and it refused because SKILL_MANAGER_HOME named a third home —
+# `pick_cli` runs before this script exports SKILL_MANAGER_HOME, so the probe
+# runs under the CALLER's ambient home, which is the trigger. The signal was
+# already there and already unique: the shim exits 79
+# (LauncherShims.HOME_MISMATCH_EXIT_CODE), chosen so a caller could tell a
+# refusal from the self-exec refusal at 78, and it collides with nothing this
+# script sees. It was emitted and discarded.
+#
+# So the probe now returns a VERDICT and no pipeline hides the status.
+CLI_HOME_MISMATCH_EXIT=79   # LauncherShims.HOME_MISMATCH_EXIT_CODE
+
+# The home a candidate BINDS, or empty when it is not a home entrypoint.
+#
+# Structural, not textual, and it runs NOTHING. A generated entrypoint lives at
+# <home>/bin/cli/skill-manager and derives its home as `../..` — so this reads
+# the same two levels the shim itself reads and cannot drift from it. Deriving
+# it instead of grepping for a marker also catches the pre-#61 PATH-searching
+# shims, which carry no marker at all (see PATH_SHIM_MARKER below).
+#
+# WHY A TEXT TEST WHEN EXIT 79 IS RIGHT THERE: because the two fixes for this
+# defect ship on opposite sides of a version skew. A CLI old enough to predate
+# the refusal, or new enough to have been taught that `--help` names no home
+# and so to answer it, both return 0 here — and neither is usable to bootstrap
+# a DIFFERENT home while SKILL_MANAGER_HOME names a third one. This clause and
+# the exit-code clause below cover each other; whichever build is installed,
+# the refusal is named as a refusal.
+cli_binds_home() {
+  local cli="$1" dir home
+  case "$cli" in */bin/cli/skill-manager) ;; *) return 0 ;; esac
+  dir="$(cd "$(dirname "$cli")" 2>/dev/null && pwd -P)" || return 0
+  home="$(cd "$dir/../.." 2>/dev/null && pwd -P)" || return 0
+  if [ -f "$home/home.runtime.json" ] \
+     || { [ -d "$home/installed" ] && [ -d "$home/skills" ]; }; then
+    printf '%s\n' "$home"
+  fi
+}
+
+# Where the last probe's own words are kept. cli_verdict runs inside a command
+# substitution, so a shell variable would die with the subshell; a file does
+# not. The point is that the candidate's OWN diagnostic reaches the report —
+# summarising a failure into one adjective is how this defect started.
+CLI_PROBE_OUT="$_LOG_TMP.probe"
+
+# ok | refused | old | broken — the four things a candidate can be, kept apart.
+# Printed rather than returned as a status so `set -e` cannot swallow it and so
+# the caller can put the word straight into a diagnostic.
+#
+# `broken` is here because `old` was silently the catch-all, and that is the
+# same defect one level down. Measured while fixing this: a home entrypoint
+# probed with a PATH that did not carry `jbang` could not start its JVM at all,
+# exited 127, printed no `--to`, and was reported as a build that "predates
+# `home clone`". Nothing was old. Anything that is not a real answer about the
+# command surface must not be scored as one.
+cli_verdict() {
+  local cli="$1" status=0 bound named
+  : > "$CLI_PROBE_OUT" 2>/dev/null || true
+
+  # THE PROBE RUNS FIRST, ALWAYS, AND ITS BYTES ARE ALWAYS KEPT — including on
+  # the paths that are about to be decided without them. The old probe piped
+  # into `grep -q`, which threw away the candidate's exit code AND everything
+  # it said; skt (HBR-3) then relayed bootstrap's "too old" faithfully, because
+  # the shim's own words had never reached it. Correcting only the status would
+  # leave the reader with a bare verdict and no evidence, so `> "$CLI_PROBE_OUT"
+  # 2>&1` replaces the pipe: same redirection, but the text survives and so does
+  # `$?`.
+  "$cli" home clone --help > "$CLI_PROBE_OUT" 2>&1 || status=$?
+
+  [ "$status" = "$CLI_HOME_MISMATCH_EXIT" ] && { printf 'refused\n'; return 0; }
+  [ "$status" = 127 ] && { printf 'broken\n'; return 0; }
+
+  # The structural clause, for the other side of the version skew: a build new
+  # enough to answer a help request truthfully returns 0 here and says nothing
+  # about homes, so there is no refusal text to relay — because there was no
+  # refusal. The report line names both homes itself in that case, which is what
+  # the shim's own message would have said.
+  bound="$(cli_binds_home "$cli")"
+  named="${SKILL_MANAGER_HOME:-}"
+  [ -n "$named" ] && named="$(cd "$named" 2>/dev/null && pwd -P || printf '%s' "$named")"
+  if [ -n "$bound" ] && [ -n "$named" ] && [ "$bound" != "$named" ]; then
+    # The candidate answered the help request rather than refusing it, so what
+    # it said is a usage screen and not a refusal. Drop it: relaying it under
+    # "It said:" would present help text as if it were the explanation.
+    : > "$CLI_PROBE_OUT" 2>/dev/null || true
+    printf 'refused\n'; return 0
+  fi
+
+  if command grep -q -- '--to' "$CLI_PROBE_OUT" 2>/dev/null; then
+    printf 'ok\n'
+  else
+    printf 'old\n'
+  fi
+}
+
+# One line of the failure report, so (a) a refusal, (b) a genuinely old build
+# and (c) nothing at all cannot render as the same sentence again.
+cli_verdict_line() {
+  local verdict="$1" cli="$2" bound
+  case "$verdict" in
+    refused)
+      bound="$(cli_binds_home "$cli")"
+      printf '    refused: %s\n' "$cli"
+      printf '             it is the entrypoint of the home %s, which binds that\n' \
+        "${bound:-it lives in}"
+      printf '             home and will not act on another. SKILL_MANAGER_HOME names\n'
+      printf '             %s. NOTHING IS OUT OF DATE.\n' "${SKILL_MANAGER_HOME:-<unset>}"
+      # AND ITS OWN WORDS, when it had any. A build that refuses says which two
+      # homes are in play and how to name one; that sentence is the useful half
+      # of this report and the old probe deleted it. Empty only when the
+      # candidate did not refuse in words — see the structural clause above.
+      if [ -s "$CLI_PROBE_OUT" ]; then
+        printf '             It said:\n'
+        cli_probe_said
+      fi
+      ;;
+    old)
+      printf '    too old: %s\n' "$cli"
+      printf '             it answered `home clone --help` without a `--to`, so this\n'
+      printf '             build predates `home clone`. It said:\n'
+      cli_probe_said
+      ;;
+    broken)
+      printf '    broken:  %s\n' "$cli"
+      printf '             it exited 127, so it could not run at all — a missing\n'
+      printf '             interpreter or a pin naming a build that is gone. This is\n'
+      printf '             not a version problem. It said:\n'
+      cli_probe_said
+      ;;
+  esac
+}
+
+# The candidate's own words, indented and bounded. Bounded because a usage dump
+# is long; present at all because "too old" was, for every one of these cases,
+# the only thing the operator was ever told.
+cli_probe_said() {
+  [ -s "$CLI_PROBE_OUT" ] || { printf '               (nothing)\n'; return 0; }
+  # Six lines reaches "this shim would have edited: <home>" in a refusal, which
+  # is the line the reader needs, without dumping a whole usage screen.
+  sed -n '1,6p' "$CLI_PROBE_OUT" | sed 's/^/               /'
+}
 
 pick_cli() {
-  local pinned="${SKILL_MANAGER_CLI:-}" c
+  local pinned="${SKILL_MANAGER_CLI:-}" verdict report="" c
   if [ -n "$pinned" ]; then
     [ -x "$pinned" ] || die "SKILL_MANAGER_CLI is not executable: $pinned"
-    cli_has_home "$pinned" || die "SKILL_MANAGER_CLI ($pinned) has no \`home clone\` subcommand"
+    verdict="$(cli_verdict "$pinned")"
+    [ "$verdict" = ok ] || die "SKILL_MANAGER_CLI cannot bootstrap this home.
+$(cli_verdict_line "$verdict" "$pinned")
+  Point SKILL_MANAGER_CLI at a skill-manager BUILD rather than at a home's
+  entrypoint, or unset SKILL_MANAGER_HOME so nothing is being aimed elsewhere."
     printf '%s\n' "$pinned"; return 0
   fi
-  c="$(command -v skill-manager || true)"
-  if [ -n "$c" ] && cli_has_home "$c"; then printf '%s\n' "$c"; return 0; fi
+
   # A CLI the checkout itself ships, then one the enclosing INTEGRATION repo
   # ships. The second entry is what lets a constituent home find a capable
   # build: bootstrapping constituents/deploy-helm searched only deploy-helm,
   # which ships no skill-manager, so it died — or, worse, the caller exported
   # SKILL_MANAGER_CLI once by hand and the pin was never recorded anywhere.
   # The integration parent is where the epic build actually lives.
-  local candidate integration
+  #
+  # HBR-2 PUT PATH LAST, and reversed an ordering this comment used to argue
+  # for. The old order tried PATH before the checkout's own build, because a
+  # checkout's copy can be older than the installed release. That reason is now
+  # served by the verdict instead: an `old` candidate is skipped and PATH is
+  # still reached, so nothing is lost — while PATH-FIRST cost something real.
+  # On a machine that bootstraps worktree homes, the `skill-manager` on PATH is
+  # very often some OTHER home's bin/cli entrypoint, and preferring it is how a
+  # bootstrap ends up asking the one CLI that is guaranteed to refuse. A build
+  # is a better answer to "which skill-manager runs this" than a shim bound to
+  # a home that is not the one being built.
+  local candidate integration seen=""
   integration="$(outermost_integration_root "$ROOT")"
+  c="$(command -v skill-manager || true)"
   for candidate in "$ROOT/skill-manager" "$ROOT"/constituents/*/skill-manager \
-                   ${integration:+"$integration/skill-manager" "$integration"/constituents/*/skill-manager}; do
+                   ${integration:+"$integration/skill-manager" "$integration"/constituents/*/skill-manager} \
+                   ${c:+"$c"}; do
     [ -x "$candidate" ] || continue
     [ -d "$candidate" ] && continue
-    if cli_has_home "$candidate"; then printf '%s\n' "$candidate"; return 0; fi
+    # One entry can appear twice — the PATH `skill-manager` IS this checkout's
+    # own build whenever the operator put it there, and the integration parent
+    # of a constituent is reached by two of the globs. Probing it twice costs a
+    # second JVM start and reports the same candidate under two bullets, which
+    # reads as two problems.
+    case " $seen " in *" $candidate "*) continue ;; esac
+    seen="$seen $candidate"
+    verdict="$(cli_verdict "$candidate")"
+    [ "$verdict" = ok ] && { printf '%s\n' "$candidate"; return 0; }
+    report="$report$(cli_verdict_line "$verdict" "$candidate")
+"
   done
-  die "no skill-manager CLI with a \`home\` subcommand was found.
-  ${c:+  on PATH: $c (too old — \`home clone\` is missing)
-}  Set SKILL_MANAGER_CLI to a build that has it, or install a newer skill-manager.
+
+  # (c) — nothing was even a candidate. Said as its own sentence, because the
+  # message this replaces recommended "install a newer skill-manager" here too,
+  # which names a version problem where there is no skill-manager to have a
+  # version.
+  [ -n "$report" ] || die "no skill-manager CLI was found at all.
+    nothing named \`skill-manager\` is on PATH, and neither $ROOT nor any
+    enclosing integration repo ships one.
+  Install skill-manager, or set SKILL_MANAGER_CLI to a build.
   Without it a worktree cannot get its own home, and an agent would run
+  against the operator's global home."
+
+  die "no skill-manager CLI that can bootstrap a home was usable. Every candidate,
+  and why each one was not it:
+$report  Set SKILL_MANAGER_CLI to a build that can, and if a candidate above was
+  REFUSED rather than old, unset SKILL_MANAGER_HOME first — a refusal is about
+  which home you aimed at, not about the CLI's version, and upgrading will not
+  change it.
+  Without one a worktree cannot get its own home, and an agent would run
   against the operator's global home."
 }
 
@@ -1582,10 +1770,39 @@ verify() {
   launch from this home exits 127 — the shims have no PATH fallback to reach
   for. Re-provision it with
     $CLI home shims --home '$STORE'"
-  cli_has_home "$home_cli" || die "verify: $home_cli does not answer \`home clone\`,
+  # HBR-2: THE SECOND INSTANCE OF THE SAME MISREAD, and it had to be fixed with
+  # the first or verify() would re-report "older than" on the same discarded
+  # evidence — one step after pick_cli had stopped doing so. This is the home's
+  # OWN entrypoint, so `refused` here means something different and worth
+  # saying: the home this shim binds is not $STORE, i.e. the home moved, or the
+  # shim was copied in from elsewhere.
+  #
+  # The `*)` arm is not decoration. A `case` with no match falls through
+  # SILENTLY, so a verdict added later would turn this check into a fail-open
+  # — which is the class of thing verify() exists to catch.
+  local home_cli_verdict
+  home_cli_verdict="$(cli_verdict "$home_cli")"
+  case "$home_cli_verdict" in
+    ok) : ;;
+    old)
+      die "verify: $home_cli does not answer \`home clone\`,
   so the build it pins is older than the commands this home needs. Re-pin it
   from the build this home should run:
-    <that build>/skill-manager home shims --home '$STORE'"
+    <that build>/skill-manager home shims --home '$STORE'" ;;
+    refused)
+      die "verify: $home_cli refuses to act on $STORE.
+  It binds $(cli_binds_home "$home_cli"), not the home it is installed in, so
+  every command through it is aimed at another home. This is NOT a version
+  problem and re-pinning a newer build will not change it — the shim is in the
+  wrong home, or this home was moved after it was written. Re-provision it:
+    $CLI home shims --home '$STORE'" ;;
+    *)
+      die "verify: $home_cli could not answer \`home clone --help\` ($home_cli_verdict).
+  It said:
+$(cli_probe_said)
+  Every launch from this home goes through it. Re-provision it:
+    $CLI home shims --home '$STORE'" ;;
+  esac
 
   # claude/codex must resolve to THIS home's shims. Resolving to another
   # home's bin/ is the failure mode LaunchEnv prunes for, so check it on the
