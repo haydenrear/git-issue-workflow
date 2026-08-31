@@ -2037,6 +2037,21 @@ verify\` keeps refusing this home whether you run it or not. That is a
 skill-manager gap; only the tools those links name are affected.
 EOF
 
+# THE FIRST LAUNCH INTO THIS HOME IS WHERE #263 LANDS, and this script is the
+# last thing that runs before it. One line, once per home -- home creation is
+# rare, so this costs nothing per session, and the disclosure budget that
+# governs `skt status` does not apply to a message nobody sees twice.
+#
+# Not a warning: on a current skill-manager the launch works. It is a POINTER,
+# because the failure it names is unreadable from its symptom -- an agent that
+# prints "Not logged in" and churns for 0s looks like a login problem, and the
+# cause is that CLAUDE_SECURESTORAGE_CONFIG_DIR selected a keychain slot
+# nobody wrote. Naming the variable here is what turns a dead end into a lookup.
+out "creds:     agents launched from this home share the operator's login."
+out "           If one says 'Not logged in', check CLAUDE_SECURESTORAGE_CONFIG_DIR"
+out "           is EMPTY -- a path there selects a slot nobody has written and"
+out "           fails exactly as if it were unset (skill-manager#263)."
+
 # LAST, always. Every warning above says "in the log", and a pointer whose target
 # is named before the thing it points at is a pointer the reader has to scroll
 # back for. This is also the only line that is unconditionally true of every
