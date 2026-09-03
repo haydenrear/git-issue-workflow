@@ -49,6 +49,7 @@ check() {
   fi
 }
 yesno() { if [ "$1" = "-d" ] && [ -d "$2" ]; then echo yes; elif [ "$1" = "-e" ] && [ -e "$2" ]; then echo yes; else echo no; fi; }
+has()   { case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac; }
 
 # PHYSICAL path. lib.sh derives every worktree path with `pwd -P`, so on a host
 # where the temp root is a symlink (macOS: /var -> /private/var) a scratch dir
@@ -112,8 +113,46 @@ check "$(git -C "$REPO" worktree list | wc -l | tr -d ' ')" 1 "git_no_longer_lis
 printf '\n== a worktree that does not exist is refused, not invented ==\n'
 (cd "$REPO" && bare "$WT" info SMOKE-1 >/dev/null 2>&1)
 check "$?" 1 "wt_info_fails_after_the_close"
-(cd "$REPO" && bare "$WT" close SMOKE-1 >/dev/null 2>&1)
+
+# ...AND THE REFUSAL NAMES ITS SUBJECT. The exit code was all this asserted, and
+# an exit code is not what a caller reads. #27: closing a ticket that resolved to
+# nothing printed
+#
+#   error: either. Check the ticket id, or name the worktree by path.
+#
+# `either.` is the tail of a five-line refusal whose subject was on the FIRST
+# line, because `wt` quoted the LAST NON-EMPTY line of its child's stderr. What
+# arrived named neither what was searched for nor where, and sent the reader to
+# `--verbose` for a search that fails identically the second time.
+CLOSED_OUT="$(cd "$REPO" && bare "$WT" close SMOKE-1 2>/dev/null)"
 check "$?" 1 "wt_close_of_a_closed_ticket_fails_rather_than_succeeding_vacuously"
+GONE_REASON="$(printf '%s\n' "$CLOSED_OUT" | sed -n 's/^error closing worktree: //p' | sed -n 1p)"
+GONE_FIX="$(printf '%s\n' "$CLOSED_OUT" | sed -n 's/^fix: //p' | sed -n 1p)"
+check "$(has "SMOKE-1" "$GONE_REASON")" yes \
+  "the_refusal_names_the_ticket_that_resolved_to_nothing" "reason: ${GONE_REASON:-<none>}"
+# $SCRATCH is where ticket worktrees for this fixture go, and it is the half the
+# truncated sentence had lost: "no such ticket" and "you are in the wrong
+# directory" are different failures with the same exit code.
+check "$(has "$SCRATCH" "$GONE_REASON")" yes \
+  "the_refusal_names_where_it_looked" "reason: ${GONE_REASON:-<none>}"
+check "$(has "--verbose" "$GONE_FIX")" no \
+  "the_fix_is_a_command_not_a_rerun_of_the_search_that_just_failed" "fix: ${GONE_FIX:-<none>}"
+
+# The general half of the same defect, measured on a refusal `wt` gets NO
+# contract for: `<path> is not a worktree of <root>` is a plain `die` with an
+# indented `git … worktree list` remedy under it, so quoting the last line handed
+# the caller a runnable COMMAND where the reason belongs — which reads as an
+# answer. A different refusal on purpose: it cannot pass on the strength of the
+# one above.
+mkdir -p "$REPO/not-a-worktree"
+SUBJ_OUT="$(cd "$REPO" && bare "$WT" close "$REPO/not-a-worktree" 2>/dev/null)"
+check "$?" 1 "closing_a_directory_that_is_not_a_worktree_is_refused"
+SUBJ_REASON="$(printf '%s\n' "$SUBJ_OUT" | sed -n 's/^error closing worktree: //p' | sed -n 1p)"
+check "$(has "is not a worktree of" "$SUBJ_REASON")" yes \
+  "the_reason_is_the_refusals_own_subject_line" "reason: ${SUBJ_REASON:-<none>}"
+check "$(has "worktree list" "$SUBJ_REASON")" no \
+  "the_reason_is_not_the_remedy_indented_beneath_it" "reason: ${SUBJ_REASON:-<none>}"
+rmdir "$REPO/not-a-worktree"
 
 printf '\n== Result ==\n  passed: %s   failed: %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

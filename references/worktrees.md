@@ -266,6 +266,22 @@ it teaches the operator to discard. The reasoning — the gate's full transcript
 every blocking unit and every conflicted file — is in the file `log:` names and
 is never printed. Read it when the `fix:` line is not enough.
 
+**The first line is the whole answer**, and it is read rather than composed: the
+child's `FAILED` key when it emitted one, and otherwise the child's own `error:`
+line. Not the last line of its stderr — a refusal that names its subject first
+and then explains itself over several indented lines would be quoted by its
+closing clause, which is what `wt close VALIDATE-1` printed for a ticket that
+resolved to nothing:
+
+```
+error: either. Check the ticket id, or name the worktree by path.
+```
+
+A sentence with its subject dropped, naming neither what was searched for nor
+where. Both halves of that are fixed (#27): `wt` quotes the `error:` line of
+whatever a child prints, and a refusal here that can name a better next move than
+`--verbose` says so with `die_fix` rather than `die`.
+
 **The two outcomes are exclusive.** A run reports success or refusal, never
 both, and the exit code agrees. `wt close <T> --force` is a *success*: it prints
 `CLOSED` / `BRANCH` / `DELETE` and exits 0. The gate's refusal — the list of

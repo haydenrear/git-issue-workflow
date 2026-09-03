@@ -345,6 +345,34 @@ fi
 # key set present on every success.
 key() { printf '%s\n' "$OUT" | command sed -n "s/^$1[[:space:]][[:space:]]*//p" | command sed -n 1p; }
 
+# THE REASON, when the child died without a FAILED key.
+#
+# `die` prints `error: <subject>` and then, often, several INDENTED lines of
+# detail, so the last line of a refusal is a continuation clause and not the
+# refusal. Quoting it produced sentences with their subject dropped — the one in
+# #27 was
+#
+#   error closing worktree:   either. Check the ticket id, or name the worktree by path.
+#
+# which names neither what was searched for nor where, and sends the reader to
+# `--verbose` for a first line it already had. So the child's own `error:` line
+# wins, with the prefix and the run of spaces after it stripped.
+#
+# THE LAST such line, not the first: a script here may run another that refuses
+# first — new-change.sh runs bootstrap-home.sh, and its stderr is in this same
+# file — and the fatal refusal is the one written last.
+#
+# The last non-blank line stays the fallback, for a child that died with no
+# `error:` line at all: a bare `set -e` failure, or a git command's own message.
+# That is why new-change.sh and bootstrap-home.sh still print `log:` BEFORE the
+# tail of their transcript rather than after it.
+child_reason() {
+  local r
+  r="$(command sed -n 's/^error:[[:space:]][[:space:]]*//p' "$ERRLOG" 2>/dev/null | command tail -n 1)"
+  [ -n "$r" ] || r="$(command grep -v '^[[:space:]]*$' "$ERRLOG" 2>/dev/null | command tail -n 1)"
+  printf '%s\n' "$r"
+}
+
 # --verbose is the one mode that keeps the old failing shape in full: the
 # operator asked to watch it happen, and the child's stderr has already been
 # tee'd to the terminal as it ran.
@@ -352,8 +380,9 @@ if [ "$RC" != 0 ] && [ "$VERBOSE" = 1 ]; then
   [ -z "$OUT" ] || printf '%s\n' "$OUT"
   case "$OUT" in
     *FAILED*) : ;;
-    *) contract_fail "$SCRIPT_DIR/$(basename "$TARGET_SCRIPT") ${ARGS[*]}" \
-         "$(command grep -v '^[[:space:]]*$' "$ERRLOG" | command tail -n 1 || printf 'exit %s' "$RC")" ;;
+    *) VREASON="$(child_reason)"
+       [ -n "$VREASON" ] || VREASON="exit $RC"
+       contract_fail "$SCRIPT_DIR/$(basename "$TARGET_SCRIPT") ${ARGS[*]}" "$VREASON" ;;
   esac
   exit "$RC"
 fi
@@ -439,8 +468,10 @@ fi
 # cost of a refusal, and it is still every byte of it, in the file named here.
 #
 # A child that refused through `die` rather than `die_fix` named no command, so
-# the fallback is its last non-blank stderr line as the reason and a verbose
-# re-run as the fix. Not a good fix, but a runnable one.
+# the fallback is its own `error:` line as the reason (`child_reason`, above) and
+# a verbose re-run as the fix. Not a good fix, but a runnable one — and a refusal
+# that can name a better one should be a `die_fix` in the child rather than
+# something guessed at here.
 #
 # The richest log there is. new-change.sh keeps its own transcript in a file and
 # names it on the first line of its stderr; close-change.sh has no such file, so
@@ -470,7 +501,7 @@ fi
 
 REASON="$(key FAILED)"
 FIX="$(key FIX)"
-[ -n "$REASON" ] || REASON="$(command grep -v '^[[:space:]]*$' "$ERRLOG" | command tail -n 1)"
+[ -n "$REASON" ] || REASON="$(child_reason)"
 [ -n "$REASON" ] || REASON="exit $RC"
 [ -n "$FIX" ] || FIX="$SCRIPT_DIR/wt $VERB ${ARGS[*]} --verbose"
 case "$VERB" in
