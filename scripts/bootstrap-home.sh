@@ -204,9 +204,11 @@ LOG_TAIL=20
 
 # The log line comes FIRST here and last on a successful run, and that is not an
 # inconsistency. `wt` answers a child that died without emitting a contract by
-# quoting THE LAST NON-EMPTY LINE OF ITS STDERR as the FAILED reason, so a
-# failure whose last line is a file path hands the caller a path where the reason
-# should be. The failure's own last line has to stay last.
+# quoting its last `error:` line as the FAILED reason, and where there is none —
+# a bare `set -e` failure, a git command's own message — THE LAST NON-EMPTY LINE
+# OF ITS STDERR. Either way a failure whose last line is a file path would hand
+# the caller a path where the reason should be. The failure's own last line has
+# to stay last.
 report_failure() {
   local total
   total="$(command wc -l < "$LOG" 2>/dev/null | command tr -d ' ')" || total=0

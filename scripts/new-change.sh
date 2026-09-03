@@ -194,9 +194,12 @@ else
 fi
 
 # 20, the tail, and the log line first — all three for the reasons spelled out
-# beside bootstrap-home.sh's copy. The one that matters most here: `wt` quotes
-# the LAST NON-EMPTY STDERR LINE as its FAILED reason when a child dies without a
-# contract, so the failure's own last line has to stay last.
+# beside bootstrap-home.sh's copy. The one that matters most here: when a child
+# dies without a contract, `wt` takes its FAILED reason from the last `error:`
+# line of its stderr and falls back to the LAST NON-EMPTY LINE. A refusal this
+# script writes by hand is found by the first rule wherever it sits in the tail;
+# the fallback is what a failure with NO `error:` line gets — a bare `set -e`, a
+# git command's own message — so that one's last line still has to stay last.
 LOG_TAIL=20
 report_failure() {
   local total

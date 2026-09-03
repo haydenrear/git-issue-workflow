@@ -151,11 +151,33 @@ case "$TARGET" in
               fi
             fi ;;
 esac
-[ -d "$WT" ] || die "not a directory: $WT
-  That is where new-change.sh would have put $TARGET for $(basename "$ROOT"), the repo
-  \$PWD is in, and no worktree named '*-$TARGET' exists in
-    $(worktree_parent_dir "$ROOT")
-  either. Check the ticket id, or name the worktree by path."
+# NOTHING RESOLVED. The first line has to be the whole answer, because it is the
+# only line most callers see: `wt` quotes it as the FAILED reason, and `skt
+# ticket close` quotes `wt`. This used to be a `die` whose message ran to five
+# lines with the subject on the FIRST, and what an operator got was
+#
+#   error: either. Check the ticket id, or name the worktree by path.
+#
+# — the tail of a sentence, naming neither what was searched for nor where (#27).
+# `wt` now prefers a child's `error:` line over the last line of its stderr, so
+# the truncation is gone whatever a child prints; this end of it says something
+# worth printing. It names the ticket, both places that were looked in, and it
+# goes through `die_fix` so the reader gets a command instead of a `--verbose`
+# re-run of a search that will fail identically the second time.
+#
+# Split by how the target was SPELLED, because the two cases were never the same
+# refusal: a path was taken literally and no search happened, so telling its
+# caller that no `*-$TARGET` exists anywhere describes a search that was not run.
+if [ ! -d "$WT" ]; then
+  case "$TARGET" in
+    */*|.|..)
+      die_fix 1 "git -C \"$ROOT\" worktree list" \
+        "no worktree at $WT — named by path, so no ticket-id search was made" ;;
+    *)
+      die_fix 1 "git -C \"$ROOT\" worktree list" \
+        "no worktree for ticket $TARGET: not at $WT (where new-change.sh would put $(basename "$ROOT")'s), and nothing named '*-$TARGET' in $(worktree_parent_dir "$ROOT")" ;;
+  esac
+fi
 WT="$(cd "$WT" && pwd -P)"
 
 # THE WORKTREE DECIDES WHICH REPO THIS IS, not $PWD. Re-derived here because the
