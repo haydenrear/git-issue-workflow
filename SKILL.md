@@ -35,6 +35,9 @@ skill-imports:
   - unit: git-epic-workflow
     path: references/goals-and-evaluation.md
     reason: Source of truth for goal field names and semantics — goal kinds, contribution kinds, baselines, and the evaluation-ticket contract this skill consumes from the assignment's `goals:` block.
+  - unit: git-epic-workflow
+    path: references/deferment.md
+    reason: Source of truth for the `deferment:` block this skill extracts and acts on — what `batch | ask | inline` oblige the ticket agent to do, what `budget` counts, the scope test that decides whether a finding may be deferred at all, and the backlog entry schema plus its `blocking | major | minor` severity vocabulary, which epic-side review and finalization read back out.
   - unit: spec-double-compiler
     path: SKILL.md
     reason: The spec workflow — open/close ticket, spec-unit-tests, current→desired promotion — runs through the tla-spec-dev CLI this skill installs.
@@ -304,9 +307,11 @@ are in `references/epic-ticket.md`.
    git -C <repo-root> worktree prune
    ```
    Underneath, 4a is `skill-manager home close-out --home <worktree>/.skill-manager
-   --into <repo-root>/.skill-manager && git worktree remove <worktree>`; run it
-   that way only when you need to pass a flag `wt close` does not forward, and
-   keep the `&&`.
+   --into <main-working-tree>/.skill-manager && git worktree remove <worktree>`; run
+   it that way only when you need to pass a flag `wt close` does not forward, and
+   keep the `&&`. `<main-working-tree>` is the checkout your worktree hangs off,
+   never `$PWD`'s toplevel, and it is computable from anywhere in the repository:
+   `git worktree list --porcelain | sed -n '1s/^worktree //p'`.
    Exit 0 is the only one that means "proceed". The three non-zero exits are not
    interchangeable and only the first prints blockers:
    - **1** — the worktree still holds work. Every blocking unit is named with the

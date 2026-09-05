@@ -135,14 +135,47 @@ and in no fan-out. Everything in steps 1–5 was about the repository's files; t
 step is about the units you were *using*, which live somewhere the repository
 cannot see.
 
+**Before the first command below: is this an epic ticket?** If the issue carried
+the `git-epic-workflow:assignment` block, the gate is **read-only** for you — run
+it for the verdict, put the verdict in the PR body, and stop. Do **not** run the
+`home sync … --merge` remedy printed further down, and do **not** remove the
+worktree. The project home is one shared destination that the concurrent tickets
+in your wave cannot see each other writing; the epic agent reconciles every
+worktree's home into it in serial at wave close and removes every worktree in one
+sweep at the end of the epic. `unit publish <unit> --ticket <ticket>` is still
+yours to run, and anything you cannot publish is named in the PR body under
+`## Review input` → *Machinery friction*. Full sequence:
+`references/epic-ticket.md` §7. This warning is here, above the commands, rather
+than after them, because a remedy is acted on where it is read.
+
+Everything from here to the end of step 6 is the **ordinary** close, where this
+worktree is the only one closing.
+
 ```bash
 skill-manager home close-out --home ../wt-<ticket>/.skill-manager \
-                             --into <repo-root>/.skill-manager
+                             --into <main-working-tree>/.skill-manager
 ```
 
 `--into` is the **project** home — the main working tree's, the one this
 worktree's home was cloned from. Not `~/.skill-manager`: the pair has to be the
 one the copy was actually made from, or the verdict is about the wrong two homes.
+And not `$PWD`'s nearest git toplevel either, which from inside the worktree
+names the worktree's own home and compares it against itself. `<main-working-tree>`
+is computable from wherever you are standing in the repository — `git worktree
+list` names the main working tree first, always, which is how `project_home` in
+`scripts/lib.sh` resolves it:
+
+```bash
+main_working_tree="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+```
+
+Elsewhere on this page the same directory is written `<repo-root>` on the plain
+`git -C …` housekeeping lines, because for an ordinary ticket they are one
+directory: the checkout your worktree hangs off. The home paths are written
+`<main-working-tree>` deliberately — that is the term `git-issue` and
+`git-epic-workflow` use for the same referent, and it is the one that stays
+correct when the command is run from inside the worktree, where "the repo root"
+is read as `$PWD`'s toplevel and is wrong.
 
 Read the verdict, not the exit code alone. There are four exits and only one of
 them prints blockers:
@@ -157,18 +190,21 @@ them prints blockers:
   refused and **nothing was attempted**. This is not a statement about your
   work; `9` ("refused, nothing attempted") is not `1` ("this worktree still
   holds work"). Either unfreeze the destination
-  (`skill-manager home policy live --home <repo-root>/.skill-manager`) or pass a
+  (`skill-manager home policy live --home <main-working-tree>/.skill-manager`) or pass a
   different `--into`.
 - **exit 1** — the real verdict: this worktree holds work. Each blocking unit is
   printed with its `status` and the literal command that clears it. There are
   only two shapes of remedy, and they answer different questions:
 
   ```bash
+  # ORDINARY tickets only. An epic ticket must NOT run this — see the epic note
+  # at the top of 6a; its home is reconciled in serial by the epic agent.
+  #
   # Move the edit UP A TIER, so closing this worktree does not take it with it.
   # Local to this machine. --merge is a three-way against the recorded baseline;
   # a conflict is reported and left for you, and a conflicted unit writes nothing.
   skill-manager home sync --from ../wt-<ticket>/.skill-manager \
-                          --to <repo-root>/.skill-manager --merge
+                          --to <main-working-tree>/.skill-manager --merge
 
   # Push the edit to the UNIT'S OWN GIT REPO. This is the only path that reaches
   # a sibling project, and the only one that survives this machine.
@@ -188,18 +224,12 @@ them prints blockers:
 Use `--json` when you want to act on `.blockers[]` programmatically. The command
 writes nothing and is safe to re-run after each remedy.
 
-**Epic exception.** Everything above is the ordinary close, where this worktree is
-the only one closing and `home sync … --merge` into the project home is the right
-move. A ticket whose issue carries the `git-epic-workflow` assignment block runs
-this differently: the gate is **read-only** there — run it, report the verdict in
-the PR body, and stop. Do not `home sync` into the project home (one shared
-destination, concurrent tickets in the wave cannot see each other writing it) and
-do not remove the worktree. `unit publish <unit> --ticket <ticket>` is still yours
-to run; anything you cannot publish is named in the PR body under
-`## Review input` → *Machinery friction*. The epic agent reconciles every
-worktree's home into the project home in serial at wave close and removes every
-worktree in one sweep at the end of the epic. Full sequence:
-`references/epic-ticket.md`.
+**Epic exception, restated because this is where the removal starts.** If you
+skipped the note at the top of 6a: an epic ticket has already finished this step
+when it has run the gate, recorded the verdict, and published what it could. It
+does not `home sync` into the project home and it does not remove the worktree —
+the epic agent does both, in serial, at wave close and at end of epic
+(`references/epic-ticket.md` §7). Nothing below this line applies to it.
 
 Prefer the wrapper in **both** repo shapes — it does the gate and the removal in
 the right order and refuses (exit 4) on a non-zero verdict:
@@ -270,7 +300,15 @@ own `feature/<ticket>` branch, PR, and **agent tag**, because each constituent r
 its *own* spec/test-graph loops downstream. Do this now via
 `references/integration-fanout.md`.
 
-## Close-out checklist
+## Close-out checklist — ORDINARY and INTEGRATION tickets only
+
+**An epic ticket does not run this checklist.** Four of its lines — the
+rebase-merge into `main`, the worktree removal, the project-root sync, and the
+`gh issue close` — are things the epic path explicitly forbids, and a checklist
+that carries an exception on one line reads as one that applies with adjustments
+everywhere else. It does not apply at all: the epic ticket's checklist is the
+"Epic ticket checklist" at the end of `references/epic-ticket.md`, and it stops
+at PR open. Use exactly one of the two.
 
 - [ ] Implemented in the worktree (parent worktree for integration)
 - [ ] Issue's `## Goals & evaluation` section read before implementing (or `N/A`)
@@ -282,9 +320,9 @@ its *own* spec/test-graph loops downstream. Do this now via
 - [ ] PLAIN: PR opened with `Closes #<n>`, rebase-merged into `main` via `gh pr merge --rebase`, merge verified
 - [ ] PR body carries `## Goal contribution` (or `None declared`)
 - [ ] INTEGRATION: parent merged to main and `verify.sh` clean
-- [ ] `home close-out` run and clean (or every blocker cleared by `home sync --merge` / `unit publish`) **before** any removal — epic ticket: gate run read-only, verdict in the PR body, no `home sync` into the project home, no removal (`references/epic-ticket.md`)
+- [ ] `home close-out` run and clean (or every blocker cleared by `home sync --merge` / `unit publish`) **before** any removal
 - [ ] Any skill improvement made inside the worktree's home published to that unit's own repo
 - [ ] Worktree removed
-- [ ] Project root (`<repo-root>`) synced to the new `main`
+- [ ] Main working tree — `<repo-root>`, the checkout the worktree hung off — synced to the new `main`
 - [ ] GitHub issue closed via `gh`
 - [ ] INTEGRATION: fan-out done (`references/integration-fanout.md`)

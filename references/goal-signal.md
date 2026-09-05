@@ -47,8 +47,17 @@ Assignment `goals[]` entries on an implementation ticket:
 | `local_signal` | A cheap in-worktree command, or `N/A: <reason>`. |
 
 An evaluation ticket carries `role: evaluation` and `owns_goals: [...]` under
-`ticket:`, and its `goals[]` entries replace `decided_by` with `harness` and
-`evidence_root` — the instrument it runs and where its results land.
+`ticket:`, and its `goals[]` entries **add** `harness` and `evidence_root` — the
+instrument it runs and where its results land. Added, not substituted: every
+field above stays, `decided_by` included, and `harness` normally repeats
+`decided_by.harness` verbatim, because that field is the goal's statement of
+what decides it and this is the ticket that runs it. A difference between the
+two is worth confirming against the plan rather than assuming it is an
+elaboration; the epic owner's pre-dispatch validator warns on exactly that.
+`contribution` stays too, pinned to `guard`: the ticket decides the goal and adds
+no behavioral delta to it, so `direct` there would be a ticket claiming to move
+the number it also measures. An evaluation goal missing `harness`,
+`evidence_root`, or `contribution` is an incomplete assignment — §1 returns it.
 
 The canonical plan spells the same facts differently, which matters only for the
 equality check in `references/epic-ticket.md` §1: the plan holds goal metadata
@@ -150,6 +159,13 @@ what the goal would actually require: the surfaces a real fix would touch, the
 measurement that showed it, and what you did instead. Do not expand this ticket
 into the fix. Plan feedback is not ticket work, and a ticket that quietly grows
 to chase a metric is the exact thing the deferment policy exists to stop.
+
+"File a deferred finding" is a specific act with an owned format — an append-only
+entry in the assignment's `deferment.backlog`, carrying a sequential ID and a
+`blocking` / `major` / `minor` severity the epic owner's review sorts on. The
+schema and the classification test are
+`<git-epic-workflow-skill>/references/deferment.md`; `references/epic-ticket.md`
+§4b is the short version for this seat.
 
 ## Reporting: the `## Goal contribution` PR section
 
