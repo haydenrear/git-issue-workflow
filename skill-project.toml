@@ -54,8 +54,8 @@ description = "Execute a git-issue work order in its selected mode: epic tickets
 #     description field, skill-manager.toml, references/ pages, and on the
 #     install/bind/sync round trip that ships an edit into a store ---
 
-[skills.skill-publisher]
-source = "github:haydenrear/skill-publisher-skill"
+[skills.unit-authoring]
+source = "github:haydenrear/skt"
 
 # --- required BY skill-publisher, not chosen here: its SKILL.md `skill-imports`
 #     names `skill-manager` (references/skill-imports.md), and `project resolve`
@@ -70,7 +70,7 @@ source = "github:haydenrear/skill-publisher-skill"
 #     both surfaces ---
 
 [skills.skill-manager]
-source = "github:haydenrear/skill-manager-skill"
+source = "github:haydenrear/skt"
 
 # --- REPO-SPECIFIC DECISION: git-issue, git-integration-repo,
 #     spec-double-compiler, test-graph and deploy-helm are deliberately NOT
