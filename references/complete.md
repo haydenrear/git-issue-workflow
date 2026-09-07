@@ -202,7 +202,11 @@ worktree in one sweep at the end of the epic. Full sequence:
 `references/epic-ticket.md`.
 
 Prefer the wrapper in **both** repo shapes — it does the gate and the removal in
-the right order and refuses (exit 4) on a non-zero verdict:
+the right order and refuses (exit 4) on a non-zero verdict. The raw pair above is
+spelled out so you can read the verdict and act on `--json`, not as a substitute
+for the wrapper: if you ran it because you could not find `wt close`, that is a
+front-door defect to report on the PR (`SKILL.md` §*Reaching a by-hand route is
+itself a finding*).
 
 ```bash
 WT="${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/skills/git-issue-workflow/scripts/wt"

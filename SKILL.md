@@ -87,6 +87,18 @@ new|close|info <ticket>` imports this skill's Python surface
 contract, same gate, plus guided remedies on refusal. Prefer it when present;
 everything below remains the source of truth for what it does.
 
+**Test for `skt` by its path, not by looking around.** It is a *plugin*, so it is
+never under a home's `skills/` — an agent that lists that directory concludes it
+is absent from a home that has it. Two paths answer the whole question:
+
+```bash
+SMH="${SKILL_MANAGER_HOME:-$HOME/.skill-manager}"
+test -x "$SMH/bin/cli/skt"                              # the plugin's generated CLI wrapper
+test -x "$SMH/skills/git-issue-workflow/scripts/wt"     # this skill's own script
+```
+
+Either one resolving means the front door is here.
+
 **Do not substitute `git worktree add`.** It produces a worktree with no Skill
 Manager home, and an agent launched there writes the operator's global
 `~/.skill-manager`. Do not substitute `git worktree remove` either: it deletes
@@ -111,6 +123,29 @@ local one is behind it; the `fix:` line branches from the published tip.
 `--stale-base-ok` takes the local ref deliberately and says so on **stderr**,
 leaving stdout unchanged. `WT_FETCH=0` skips the refresh when offline. See
 `references/worktrees.md` § *The branch point*.
+
+**Reaching a by-hand route is itself a finding — report it.** This skill spells
+out a manual equivalent in two places: the chained
+`git worktree add && bootstrap-home.sh` in `references/epic-ticket.md` §2, and
+the raw `home close-out && git worktree remove` under step 4a below. Each is
+written for a repository that genuinely has no front door — **and because each
+one works, an agent that merely could not *find* the front door lands on it,
+produces a plausible result, and leaves no trace but the cost.** Four eval runs
+did exactly that, for four different reasons, and none of them reported a
+problem.
+
+So run the two `-x` tests above first. If neither resolved, the by-hand route is
+correct and there is nothing to report. If either resolved and you are on the
+by-hand route anyway, say so in one line, naming which it was:
+
+- `skt` is installed but was not on `PATH`;
+- you looked where it never is (`skills/` for a plugin);
+- you found it and it **failed** — quote its `error:` line verbatim;
+- you found it and could not read the home it pointed at.
+
+All four are front-door defects, not facts about the repository. Put the line
+where this ticket's work is reported — the PR body, or to the user when there is
+no PR — and file it against this skill.
 
 Everything else is on demand and costs nothing until asked:
 `"$WT" info <ticket>` prints WORKTREE / BRANCH / LAUNCH / IF-EXIT-8 / CLOSE (and
@@ -306,7 +341,8 @@ are in `references/epic-ticket.md`.
    Underneath, 4a is `skill-manager home close-out --home <worktree>/.skill-manager
    --into <repo-root>/.skill-manager && git worktree remove <worktree>`; run it
    that way only when you need to pass a flag `wt close` does not forward, and
-   keep the `&&`.
+   keep the `&&`. Needing a flag is the *only* reason to spell it out — reaching
+   this pair because `wt close` could not be found is the reportable case above.
    Exit 0 is the only one that means "proceed". The three non-zero exits are not
    interchangeable and only the first prints blockers:
    - **1** — the worktree still holds work. Every blocking unit is named with the

@@ -109,7 +109,13 @@ commit — never re-resolve `origin/epic/<slug>` afterwards):
 
 In a home carrying the `skt` plugin, the whole block below is one command —
 declared path, pinned base, retention ref, and the worktree's own home, rolled
-back together on bootstrap failure:
+back together on bootstrap failure. `skt` is a plugin, so **`skills/` is the
+wrong place to look for it**; this is the test:
+
+```bash
+SMH="${SKILL_MANAGER_HOME:-$HOME/.skill-manager}"
+test -x "$SMH/bin/cli/skt"        # -> use the one command below
+```
 
 ```bash
 git fetch origin
@@ -118,7 +124,15 @@ skt ticket new <issue-number>-<slug> --base "$commit_oid" --path ../wt-<issue-nu
 cd ../wt-<issue-number>-<slug>
 ```
 
-Without skt, the same conventions by hand:
+Without skt, the same conventions by hand.
+
+**If you are reading this because the front door was not *found*, that is a
+defect worth reporting.** The block below is for a repository that genuinely has
+no `skt` and no `wt` — not for one where the wrapper was present and you looked
+in `skills/`, or ran it and it failed. It works either way, which is exactly why
+its use is silent unless you say which case you were in: run the `-x` tests
+first, and if either resolved, name the reason on the PR (`SKILL.md` §*Reaching
+a by-hand route is itself a finding*).
 
 ```bash
 git fetch origin
