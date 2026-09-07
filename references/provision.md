@@ -83,6 +83,11 @@ which every other agent and every other worktree is also writing — so a bare
 `git worktree add` here is not a shorter route to the same place, it is a
 different and worse outcome. `wt new` is what closes that window.
 
+Both lines below are the front door; neither is a hand replay. If you find
+yourself reading `wt` and reproducing its steps instead of calling it, stop —
+that is the defect `SKILL.md` §*Reaching a by-hand route is itself a finding*
+asks you to report, not a route this section offers.
+
 ```bash
 # The front door. An installed unit's files live at $SKILL_MANAGER_HOME/skills/<unit>/;
 # the :- fallback is what makes this line work from a bare shell too.
@@ -96,6 +101,8 @@ git update-ref "refs/index-bases/$(basename "$(git rev-parse --show-toplevel)")/
 
 skt ticket new <ticket> --base "$commit_oid"   # preferred: on PATH in skt-carrying homes
 "$WT" new <ticket> "$commit_oid"               # the same door where skt is absent
+# Which one: test -x "${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/bin/cli/skt".
+# skt is a PLUGIN — it is never under skills/, so `ls skills/` answers wrongly.
 # -> created worktree /path/to/<repo>-<ticket>
 cd /path/to/<repo>-<ticket>                          # the path it just printed
 ```
