@@ -39,10 +39,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; . "$SCRIPT_DIR/lib.s
 
 usage() {
   cat >&2 <<'EOF'
-usage: bootstrap-home.sh [--root DIR] [--source HOME] [--policy live|frozen]
+usage: bootstrap-home.sh [DIR | --root DIR] [--source HOME] [--policy live|frozen]
                          [--print-env] [--force] [--quiet] [--verbose]
                          [--onboard [--onboard-gateway]] [--allow-empty]
 
+  DIR              Checkout to give a home to, positionally -- the same thing
+                   --root names. Accepted because every other front door in
+                   this pair takes its subject that way.
   --root DIR       Checkout to give a home to. Default: the nearest enclosing
                    git toplevel — which inside a constituent is the
                    CONSTITUENT, not the integration repo tracking its files.
@@ -106,6 +109,7 @@ ONBOARD=0; ONBOARD_GATEWAY=0; ALLOW_EMPTY=0; NO_PROJECT=0; ALLOW_UNPROJECTED=0
 # this home HOLDS, so it survives to the closing banner rather than being turned
 # into an exit code on the spot — the gates below own the codes.
 ONBOARD_SHORTFALL=0
+ROOT_POSITIONAL=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --root)      ROOT="${2:?--root needs a directory}"; shift 2 ;;
@@ -121,9 +125,27 @@ while [ $# -gt 0 ]; do
     --no-project)  NO_PROJECT=1; shift ;;
     --allow-unprojected) ALLOW_UNPROJECTED=1; shift ;;
     -h|--help)   usage; exit 0 ;;
-    *)           usage; die "unknown argument: $1" ;;
+    # A BARE DIRECTORY IS THE ROOT. Measured in the home-bootstrap eval: an
+    # agent that had found this script and read its usage still wrote
+    #
+    #     bootstrap-home.sh /path/to/checkout
+    #
+    # and got `unknown argument`. The second front door in this pair --
+    # `wt new <ticket> <base>` -- takes its subject positionally, and so does
+    # nearly every command an agent has ever used; requiring the flag here is
+    # the odd one out, and the error taught nothing about which flag was meant.
+    # `--root` stays the documented spelling and wins when both are given.
+    -*)          usage; die "unknown option: $1" ;;
+    *)
+      if [ -n "${ROOT_POSITIONAL:-}" ]; then
+        usage; die "two directories given ($ROOT_POSITIONAL and $1) — pass one"
+      fi
+      ROOT_POSITIONAL="$1"; shift ;;
   esac
 done
+# --root wins over a bare directory: an explicit flag beating a positional is
+# the least surprising rule, and it keeps every existing call identical.
+if [ -n "$ROOT_POSITIONAL" ] && [ -z "${ROOT:-}" ]; then ROOT="$ROOT_POSITIONAL"; fi
 case "$POLICY" in live|frozen) : ;; *) die "--policy must be live or frozen, got: $POLICY" ;; esac
 
 # --------------------------------------------------------- what this run SAYS
